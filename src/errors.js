@@ -1,8 +1,8 @@
 
 export class TasqError extends Error {}
 export class TasqRequestError extends TasqError {
-	constructor(topic, method, data, message = 'unknown error') {
-		super(`Request error: ${message}.`);
+	constructor(topic, method, data) {
+		super();
 
 		this.request = {
 			topic,
@@ -12,20 +12,11 @@ export class TasqRequestError extends TasqError {
 	}
 }
 export class TasqRequestTimeoutError extends TasqRequestError {
-	constructor(...args) {
-		super(
-			...args,
-			'timeout',
-		);
-	}
+	message = 'Request timeouted.';
 }
 export class TasqRequestRejectedError extends TasqRequestError {
-	constructor(code, ...args) {
-		super(
-			...args,
-			'rejected',
-		);
-
-		this.code = code;
-	}
+	message = 'Method failed to execute.';
+}
+export class TasqRequestUnknownMethodError extends TasqRequestError {
+	message = 'Unknown method called.';
 }

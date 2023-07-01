@@ -1,6 +1,6 @@
 {
 	"name": "@kirick/tasq",
-	"version": "0.1.0-beta.2",
+	"version": "0.1.0-beta.5",
 	"description": "Schedule tasks for your microservices easily.",
 	"publishConfig": {
 		"access": "public",
@@ -11,10 +11,12 @@
 	"engines": {
 		"node": ">=14.0.0"
 	},
-    "dependencies": {
-		"@kirick/redis-client": "4.6.0-beta.2",
-        "nanoid": "4.0.2"
-    },
+	"dependencies": {
+		"nanoid": "4.0.2"
+	},
+	"peerDependencies": {
+		"@kirick/redis-client": "4.0.1-beta.4 || ^4.6.0-beta"
+	},
 	"devDependencies": {
 		"@babel/core": "7.22.1",
 		"@babel/eslint-parser": "7.21.8",

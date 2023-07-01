@@ -1,18 +1,21 @@
 
+import { createClient } from '@kirick/redis-client';
+
 import Tasq from '../src/main.js';
 
-const tasq_client = new Tasq({
-	host: 'localhost',
-	port: 6379,
-});
+const redisClient = createClient();
+
+const tasq_client = new Tasq(redisClient);
 
 const response = await tasq_client.request(
-	'test.echo',
+	'test.' + (process.argv[3] ?? 'echo'),
 	{
 		name: process.argv[2] ?? process.env.HOSTNAME ?? 'world',
 	},
 );
 console.log('response =', response);
 
-tasq_client.destroy();
+await tasq_client.destroy();
+await redisClient.disconnect();
+
 process.exit(); // eslint-disable-line no-process-exit, unicorn/no-process-exit

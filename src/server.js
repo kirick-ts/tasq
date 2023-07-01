@@ -1,12 +1,14 @@
 
-import { getTime,
-         getRedisKey,
-         getRedisChannelForRequest,
-         getRedisChannelForResponse } from './fns.js';
+import {
+	getTime,
+	getRedisKey,
+	getRedisChannelForRequest,
+	getRedisChannelForResponse } from './fns.js';
 
 export default class TasqServer {
 	#client_pub;
 	#client_sub;
+	#handler;
 	#handlers;
 	#redis_key;
 	#processes = 0;
@@ -17,11 +19,13 @@ export default class TasqServer {
 		{
 			topic,
 			threads = 1,
+			handler,
 			handlers,
 		},
 	) {
 		this.#client_pub = client;
 		this.#client_sub = client.duplicate();
+		this.#handler = handler;
 		this.#handlers = handlers;
 		this.#redis_key = getRedisKey(topic);
 		this.#processes_max = threads;
@@ -71,19 +75,33 @@ export default class TasqServer {
 					request_id,
 				];
 
-				if (typeof this.#handlers[method] !== 'function') { // eslint-disable-line unicorn/no-negated-condition
-					response.push(2);
+				let handler;
+				let handler_args;
+				if (typeof this.#handlers[method] === 'function') {
+					handler = this.#handlers[method];
+					handler_args = [ data ];
 				}
-				else {
+				else if (typeof this.#handler === 'function') {
+					handler = this.#handler;
+					handler_args = [
+						method,
+						data,
+					];
+				}
+
+				if (handler) {
 					try {
 						response.push(
 							0,
-							await this.#handlers[method](data),
+							await handler(...handler_args),
 						);
 					}
 					catch {
 						response.push(1);
 					}
+				}
+				else {
+					response.push(2);
 				}
 
 				await this.#client_pub.publish(
@@ -106,8 +124,9 @@ export default class TasqServer {
 		}
 	}
 
-	destroy() {
-		this.#client_sub.unsubscribe();
-		// TODO: close client connections
+	async destroy() {
+		await this.#client_sub.unsubscribe();
+		// await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode
+		await this.#client_sub.disconnect();
 	}
 }

@@ -1,14 +1,17 @@
 
-import { createClient }   from '@kirick/redis-client';
+import RedisClient from '@kirick/redis-client/src/client.js';
 
-import { TasqRequestTimeoutError,
-         TasqRequestRejectedError }   from './errors.js';
-import { getTime,
-         getRedisKey,
-         getRedisChannelForRequest,
-         getRedisChannelForResponse } from './fns.js';
-import createID                       from './id.js';
-import TasqServer                     from './server.js';
+import {
+	TasqRequestTimeoutError,
+	TasqRequestRejectedError,
+	TasqRequestUnknownMethodError } from './errors.js';
+import {
+	getTime,
+	getRedisKey,
+	getRedisChannelForRequest,
+	getRedisChannelForResponse }    from './fns.js';
+import createID                     from './id.js';
+import TasqServer                   from './server.js';
 
 const TIMEOUT = 10_000;
 
@@ -19,16 +22,24 @@ export default class Tasq {
 	#requests = new Map();
 	#servers = new Set();
 
-	constructor(client_configuration) {
-		this.#client_pub = createClient(client_configuration);
-		this.#client_sub = this.#client_pub.duplicate();
+	constructor(client) {
+		if (client instanceof RedisClient !== true) {
+			throw new TypeError(
+				'Expected client to be an instance of RedisClient.',
+			);
+		}
+
+		this.#client_pub = client;
+		this.#client_sub = client.duplicate();
 
 		this.#client_sub.subscribe(
 			getRedisChannelForResponse(this.#id),
 			(message) => {
 				this.#onResponse(message);
 			},
-		);
+		).catch((error) => {
+			console.error(error);
+		});
 	}
 
 	async request(target, data) {
@@ -111,6 +122,26 @@ export default class Tasq {
 
 			this.#requests.delete(request_id);
 
+			switch (status) {
+				case 0:
+					resolve(data);
+					break;
+				case 1:
+					reject(
+						new TasqRequestRejectedError(...request),
+					);
+					break;
+				case 2:
+					reject(
+						new TasqRequestUnknownMethodError(...request),
+					);
+					break;
+				default:
+					reject(
+						new Error('Unknown response status.'),
+					);
+			}
+
 			if (status === 0) {
 				resolve(data);
 			}
@@ -136,12 +167,14 @@ export default class Tasq {
 		return server;
 	}
 
-	destroy() {
-		this.#client_sub.unsubscribe();
-		// TODO: close client connections
+	async destroy() {
+		await this.#client_sub.unsubscribe();
+		// await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode
+		await this.#client_sub.disconnect();
 
 		for (const server of this.#servers) {
-			server.destroy();
+			// eslint-disable-next-line no-await-in-loop
+			await server.destroy();
 		}
 	}
 }
