@@ -77,7 +77,7 @@ export default class TasqServer {
 
 				let handler;
 				let handler_args;
-				if (typeof this.#handlers[method] === 'function') {
+				if (typeof this.#handlers?.[method] === 'function') {
 					handler = this.#handlers[method];
 					handler_args = [ data ];
 				}

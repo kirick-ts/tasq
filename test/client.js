@@ -4,7 +4,6 @@ import { createClient } from '@kirick/redis-client';
 import Tasq from '../src/main.js';
 
 const redisClient = createClient();
-
 const tasq_client = new Tasq(redisClient);
 
 const response = await tasq_client.request(
