@@ -1,4 +1,9 @@
 
+import { commandOptions }  from 'redis';
+import {
+	encode as cborEncode,
+	decode as cborDecode } from 'cbor-x';
+
 import {
 	getTime,
 	getRedisKey,
@@ -11,6 +16,7 @@ export default class TasqServer {
 	#handler;
 	#handlers;
 	#redis_key;
+	#redis_channel;
 	#processes = 0;
 	#processes_max = 1;
 
@@ -24,15 +30,31 @@ export default class TasqServer {
 		},
 	) {
 		this.#client_pub = client;
-		this.#client_sub = client.duplicate();
+		this.#prepareSubClient().catch((error) => {
+			console.error(error);
+		});
 		this.#handler = handler;
 		this.#handlers = handlers;
 		this.#redis_key = getRedisKey(topic);
+		this.#redis_channel = getRedisChannelForRequest(topic);
 		this.#processes_max = threads;
+	}
 
-		this.#client_sub.subscribe(
-			getRedisChannelForRequest(topic),
-			async () => {
+	async #prepareSubClient() {
+		this.#client_sub = this.#client_pub.duplicate();
+
+		this.#client_sub.on(
+			'error',
+			(error) => {
+				console.error(error);
+			},
+		);
+
+		await this.#client_sub.connect();
+
+		await this.#client_sub.subscribe(
+			this.#redis_channel,
+			() => {
 				// console.log('New task available!\nRunning scheduler...');
 				this.#schedule();
 			},
@@ -55,18 +77,21 @@ export default class TasqServer {
 
 		this.#processes++;
 
-		const task_string = await this.#client_pub.LPOP(
+		const task_buffer = await this.#client_pub.LPOP(
+			commandOptions({
+				returnBuffers: true,
+			}),
 			this.#redis_key,
 		);
-		const has_task = typeof task_string === 'string';
+		const has_task = Buffer.isBuffer(task_buffer);
 		if (has_task) {
 			const [
 				client_id,
 				request_id,
 				ts_timeout,
 				method,
-				data,
-			] = JSON.parse(task_string);
+				method_args = {},
+			] = cborDecode(task_buffer);
 
 			if (getTime() < ts_timeout) {
 				// console.log(`Running task with method "${method}"...`);
@@ -79,13 +104,13 @@ export default class TasqServer {
 				let handler_args;
 				if (typeof this.#handlers?.[method] === 'function') {
 					handler = this.#handlers[method];
-					handler_args = [ data ];
+					handler_args = [ method_args ];
 				}
 				else if (typeof this.#handler === 'function') {
 					handler = this.#handler;
 					handler_args = [
 						method,
-						data,
+						method_args,
 					];
 				}
 
@@ -106,7 +131,7 @@ export default class TasqServer {
 
 				await this.#client_pub.publish(
 					getRedisChannelForResponse(client_id),
-					JSON.stringify(response),
+					cborEncode(response),
 				);
 			}
 			// else {

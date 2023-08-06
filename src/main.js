@@ -1,5 +1,7 @@
 
-import RedisClient from '@kirick/redis-client/src/client.js';
+import {
+	encode as cborEncode,
+	decode as cborDecode } from 'cbor-x';
 
 import {
 	TasqRequestTimeoutError,
@@ -23,27 +25,36 @@ export default class Tasq {
 	#servers = new Set();
 
 	constructor(client) {
-		if (client instanceof RedisClient !== true) {
-			throw new TypeError(
-				'Expected client to be an instance of RedisClient.',
-			);
-		}
-
 		this.#client_pub = client;
-		this.#client_sub = client.duplicate();
-
-		this.#client_sub.subscribe(
-			getRedisChannelForResponse(this.#id),
-			(message) => {
-				this.#onResponse(message);
-			},
-		).catch((error) => {
+		this.#prepareSubClient().catch((error) => {
 			console.error(error);
 		});
 	}
 
+	async #prepareSubClient() {
+		this.#client_sub = this.#client_pub.duplicate();
+
+		this.#client_sub.on(
+			'error',
+			(error) => {
+				console.error(error);
+			},
+		);
+
+		await this.#client_sub.connect();
+
+		await this.#client_sub.subscribe(
+			getRedisChannelForResponse(this.#id),
+			(message) => {
+				this.#onResponse(message);
+			},
+			true, // receive buffers
+		);
+	}
+
 	async request(target, data) {
 		const request_id = createID();
+		const request_id_string = request_id.toString('base64');
 
 		const [ topic, method ] = target.split('.', 2);
 		const redis_key = getRedisKey(topic);
@@ -58,10 +69,10 @@ export default class Tasq {
 			request.push(data);
 		}
 
-		await this.#client_pub.MULTI()
+		await this.#client_pub.multi()
 			.RPUSH(
 				redis_key,
-				JSON.stringify(request),
+				cborEncode(request),
 			)
 			.PEXPIRE(
 				redis_key,
@@ -71,12 +82,12 @@ export default class Tasq {
 				getRedisChannelForRequest(topic),
 				'',
 			)
-			.EXEC();
+			.exec();
 
 		return Promise.race([
 			new Promise((resolve, reject) => {
 				this.#requests.set(
-					request_id,
+					request_id_string,
 					{
 						request: [
 							topic,
@@ -91,7 +102,7 @@ export default class Tasq {
 			new Promise((resolve, reject) => {
 				setTimeout(
 					() => {
-						this.#requests.delete(request_id);
+						this.#requests.delete(request_id_string);
 						reject(
 							new TasqRequestTimeoutError(
 								topic,
@@ -111,16 +122,18 @@ export default class Tasq {
 			request_id,
 			status,
 			data,
-		] = JSON.parse(message);
+		] = cborDecode(message);
 
-		if (this.#requests.has(request_id)) {
+		const request_id_string = request_id.toString('base64');
+
+		if (this.#requests.has(request_id_string)) {
 			const {
 				request,
 				resolve,
 				reject,
-			} = this.#requests.get(request_id);
+			} = this.#requests.get(request_id_string);
 
-			this.#requests.delete(request_id);
+			this.#requests.delete(request_id_string);
 
 			switch (status) {
 				case 0:

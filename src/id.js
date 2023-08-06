@@ -1,9 +1,6 @@
 
-import { customAlphabet } from 'nanoid';
+import { randomBytes } from 'node:crypto';
 
-const nanoid = customAlphabet(
-	'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
-	8,
-);
-
-export default nanoid;
+export default function () {
+	return randomBytes(6);
+}
