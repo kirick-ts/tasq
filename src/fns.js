@@ -1,21 +1,14 @@
 
 export function getTime() {
-	return Date.now() - 1672531200000;
+	return Date.now() - 1_672_531_200_000;
 }
 
-function encodeTopic(topic) {
-	if (Buffer.isBuffer(topic)) {
-		return '$' + topic.toString('base64').replaceAll('=', '');
-	}
-
-	return topic;
-}
 export function getRedisKey(topic) {
-	return `@tasq:${encodeTopic(topic)}`;
+	return `@tasq:${topic}`;
 }
 export function getRedisChannelForRequest(topic) {
-	return `@tasq:s:${encodeTopic(topic)}`;
+	return `@tasq:s:${topic}`;
 }
 export function getRedisChannelForResponse(topic) {
-	return `@tasq:c:${encodeTopic(topic)}`;
+	return `@tasq:c:${topic}`;
 }

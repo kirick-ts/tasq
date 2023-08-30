@@ -1,4 +1,8 @@
 
+/**
+ * @typedef {import('redis').RedisClient} RedisClient
+ */
+
 import {
 	encode as cborEncode,
 	decode as cborDecode } from 'cbor-x';
@@ -18,12 +22,15 @@ import TasqServer                   from './server.js';
 const TIMEOUT = 10_000;
 
 export default class Tasq {
-	#id = createID();
+	#id = createID().toString('base64').replaceAll('=', '');
 	#client_pub;
 	#client_sub;
 	#requests = new Map();
 	#servers = new Set();
 
+	/**
+	 * @param {RedisClient} client The Redis client to be used.
+	 */
 	constructor(client) {
 		this.#client_pub = client;
 		this.#prepareSubClient().catch((error) => {
@@ -52,11 +59,17 @@ export default class Tasq {
 		);
 	}
 
-	async request(target, data) {
+	/**
+	 * Schedules a new task.
+	 * @param {string} topic The topic of the task.
+	 * @param {string} method The method to be called.
+	 * @param {{[key: string]: any}} data The data to be passed to the method.
+	 * @returns {Promise<{[key: string]: any} | [*]>} The result of the task.
+	 */
+	async request(topic, method, data) {
 		const request_id = createID();
-		const request_id_string = request_id.toString('base64');
+		const request_id_string = request_id.toString('hex');
 
-		const [ topic, method ] = target.split('.', 2);
 		const redis_key = getRedisKey(topic);
 
 		const request = [
@@ -124,7 +137,7 @@ export default class Tasq {
 			data,
 		] = cborDecode(message);
 
-		const request_id_string = request_id.toString('base64');
+		const request_id_string = request_id.toString('hex');
 
 		if (this.#requests.has(request_id_string)) {
 			const {

@@ -1,26 +1,25 @@
 
-import { createClient } from 'redis';
+import { createClient } from './client.js';
 
-import Tasq from '../src/main.js';
+const tasqClient = await createClient();
 
-const redisClient = createClient({
-	url: 'redis://localhost:6379',
-});
-await redisClient.connect();
-
-const tasq_client = new Tasq(redisClient);
-
-tasq_client.serve({
+tasqClient.serve({
 	topic: 'test',
-	handler(method, args) {
-		console.log(`Unknown method "${method}" received with args =`, args);
-		throw new Error(`Unknown method "${method}".`);
-	},
+	threads: 2,
 	handlers: {
-		async echo({ name }) {
-			console.log('Task "echo" received');
-
-			return `Hello, ${name}!`;
+		echo({ name }) {
+			return `Hello, ${name ?? 'world'}!`;
+		},
+		user() {
+			return {
+				id: 1,
+				name: 'Tasq',
+			};
+		},
+		error() {
+			throw new Error('Test error.');
 		},
 	},
 });
+
+export default tasqClient;
