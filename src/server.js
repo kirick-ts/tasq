@@ -1,4 +1,8 @@
 
+/**
+ * @typedef {import('redis').RedisClient} RedisClient
+ */
+
 import { commandOptions }  from 'redis';
 import {
 	encode as cborEncode,
@@ -20,6 +24,14 @@ export default class TasqServer {
 	#processes = 0;
 	#processes_max = 1;
 
+	/**
+	 * @param {RedisClient} client The Redis client from "redis" package to be used.
+	 * @param {object} options The options for the server.
+	 * @param {string} options.topic The topic to be used.
+	 * @param {number | undefined} [options.threads] The maximum number of parallel tasks to be executed. Defaults to 1.
+	 * @param {Function | undefined} [options.handler] The default handler to be used. If there is no handler for a method in the "handlers" object, this handler will be used.
+	 * @param {object | undefined} [options.handlers] The handlers to be used. The keys are the method names and the values are the handlers.
+	 */
 	constructor(
 		client,
 		{
@@ -40,6 +52,11 @@ export default class TasqServer {
 		this.#processes_max = threads;
 	}
 
+	/**
+	 * Creates a new Redis client for the subscription.
+	 * @private
+	 * @returns {Promise<void>}
+	 */
 	async #prepareSubClient() {
 		this.#client_sub = this.#client_pub.duplicate();
 
@@ -63,12 +80,21 @@ export default class TasqServer {
 		this.#schedule();
 	}
 
+	/**
+	 * Schedules a new task execute.
+	 * @private
+	 */
 	#schedule() {
 		this.#execute().catch((error) => {
 			console.error(error);
 		});
 	}
 
+	/**
+	 * Gets a task from the queue and executes it.
+	 * @private
+	 * @returns {Promise<void>}
+	 */
 	async #execute() {
 		if (this.#processes >= this.#processes_max) {
 			// console.log('Maximum number of processes reached.');
@@ -149,6 +175,10 @@ export default class TasqServer {
 		}
 	}
 
+	/**
+	 * Destroys the server.
+	 * @returns {Promise<void>}
+	 */
 	async destroy() {
 		await this.#client_sub.unsubscribe();
 		// await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode

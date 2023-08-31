@@ -29,7 +29,7 @@ export default class Tasq {
 	#servers = new Set();
 
 	/**
-	 * @param {RedisClient} client The Redis client to be used.
+	 * @param {RedisClient} client The Redis client from "redis" package to be used.
 	 */
 	constructor(client) {
 		this.#client_pub = client;
@@ -38,6 +38,11 @@ export default class Tasq {
 		});
 	}
 
+	/**
+	 * Creates a new Redis client for the subscription.
+	 * @private
+	 * @returns {Promise<void>}
+	 */
 	async #prepareSubClient() {
 		this.#client_sub = this.#client_pub.duplicate();
 
@@ -130,6 +135,12 @@ export default class Tasq {
 		]);
 	}
 
+	/**
+	 * Handles a response to a task.
+	 * @private
+	 * @param {Buffer} message The message received.
+	 * @returns {void}
+	 */
 	#onResponse(message) {
 		const [
 			request_id,
@@ -182,6 +193,11 @@ export default class Tasq {
 		}
 	}
 
+	/**
+	 * Creates a new Tasq server.
+	 * @param {{[key: string]: string}} options The options for the server.
+	 * @returns {TasqServer} The Tasq server.
+	 */
 	serve(options) {
 		const server = new TasqServer(
 			this.#client_pub,
@@ -193,6 +209,10 @@ export default class Tasq {
 		return server;
 	}
 
+	/**
+	 * Destroys the Tasq instance.
+	 * @returns {Promise<void>}
+	 */
 	async destroy() {
 		await this.#client_sub.unsubscribe();
 		// await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode
