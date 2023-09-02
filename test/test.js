@@ -37,9 +37,18 @@ describe('successfully responding to requests', () => {
 			'Hello, Tasq!',
 		);
 	});
-	it('method returning object', async () => {
+	it('method returning object (sync)', async () => {
 		deepStrictEqual(
-			await tasqClient.request('test', 'user'),
+			await tasqClient.request('test', 'userSync'),
+			{
+				id: 1,
+				name: 'Tasq',
+			},
+		);
+	});
+	it('method returning object (async)', async () => {
+		deepStrictEqual(
+			await tasqClient.request('test', 'userAsync'),
 			{
 				id: 1,
 				name: 'Tasq',
