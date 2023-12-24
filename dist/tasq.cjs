@@ -84,7 +84,7 @@ var TasqServer = class {
   // __even if__ it got no tasks from Redis.
   #scheduler_bounced = false;
   /**
-   * @param {RedisClient} client The Redis client from "redis" package to be used.
+   * @param {import('redis').RedisClientType} client The Redis client from "redis" package to be used.
    * @param {object} options The options for the server.
    * @param {string} options.topic The topic to be used.
    * @param {number | undefined} [options.threads] The maximum number of parallel tasks to be executed. Defaults to 1.
@@ -218,12 +218,18 @@ var TasqServer = class {
 var TIMEOUT = 1e4;
 var Tasq = class {
   #id = id_default().toString("base64").replaceAll("=", "");
+  /**
+   * @type {RedisClientType}
+   */
   #client_pub;
+  /**
+   * @type {RedisClientType}
+   */
   #client_sub;
   #requests = /* @__PURE__ */ new Map();
   #servers = /* @__PURE__ */ new Set();
   /**
-   * @param {RedisClient} client The Redis client from "redis" package to be used.
+   * @param {RedisClientType} client The Redis client from "redis" package to be used.
    */
   constructor(client) {
     this.#client_pub = client;
@@ -274,7 +280,7 @@ var Tasq = class {
     if (data !== void 0) {
       request.push(data);
     }
-    await this.#client_pub.MULTI().RPUSH(
+    await this.#client_pub.multi().RPUSH(
       redis_key,
       (0, import_cbor_x2.encode)(request)
     ).PEXPIRE(
@@ -283,7 +289,7 @@ var Tasq = class {
     ).PUBLISH(
       getRedisChannelForRequest(topic),
       ""
-    ).EXEC();
+    ).exec();
     return Promise.race([
       new Promise((resolve, reject) => {
         this.#requests.set(

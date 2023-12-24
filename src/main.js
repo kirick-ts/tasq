@@ -1,6 +1,6 @@
 
 /**
- * @typedef {import('redis').RedisClient} RedisClient
+ * @typedef {import('redis').RedisClientType} RedisClientType
  */
 
 import {
@@ -23,13 +23,21 @@ const TIMEOUT = 10_000;
 
 export class Tasq {
 	#id = createID().toString('base64').replaceAll('=', '');
+
+	/**
+	 * @type {RedisClientType}
+	 */
 	#client_pub;
+	/**
+	 * @type {RedisClientType}
+	 */
 	#client_sub;
+
 	#requests = new Map();
 	#servers = new Set();
 
 	/**
-	 * @param {RedisClient} client The Redis client from "redis" package to be used.
+	 * @param {RedisClientType} client The Redis client from "redis" package to be used.
 	 */
 	constructor(client) {
 		this.#client_pub = client;
@@ -87,7 +95,7 @@ export class Tasq {
 			request.push(data);
 		}
 
-		await this.#client_pub.MULTI()
+		await this.#client_pub.multi()
 			.RPUSH(
 				redis_key,
 				cborEncode(request),
@@ -100,7 +108,7 @@ export class Tasq {
 				getRedisChannelForRequest(topic),
 				'',
 			)
-			.EXEC();
+			.exec();
 
 		return Promise.race([
 			new Promise((resolve, reject) => {

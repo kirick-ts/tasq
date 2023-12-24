@@ -1,8 +1,4 @@
 
-/**
- * @typedef {import('redis').RedisClient} RedisClient
- */
-
 import { commandOptions }  from 'redis';
 import {
 	encode as cborEncode,
@@ -29,7 +25,7 @@ export default class TasqServer {
 	#scheduler_bounced = false;
 
 	/**
-	 * @param {RedisClient} client The Redis client from "redis" package to be used.
+	 * @param {import('redis').RedisClientType} client The Redis client from "redis" package to be used.
 	 * @param {object} options The options for the server.
 	 * @param {string} options.topic The topic to be used.
 	 * @param {number | undefined} [options.threads] The maximum number of parallel tasks to be executed. Defaults to 1.
