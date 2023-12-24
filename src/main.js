@@ -21,7 +21,7 @@ import TasqServer                   from './server.js';
 
 const TIMEOUT = 10_000;
 
-export default class Tasq {
+export class Tasq {
 	#id = createID().toString('base64').replaceAll('=', '');
 	#client_pub;
 	#client_sub;

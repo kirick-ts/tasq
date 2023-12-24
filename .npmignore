@@ -1,0 +1,4 @@
+
+.eslintrc.cjs
+test/
+**/*.test.js

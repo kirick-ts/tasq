@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/require-jsdoc */
 
-import Tasq from '../src/main.js';
+import { Tasq } from '../src/main.js';
 
 import { createRedisClient } from './redis.js';
 

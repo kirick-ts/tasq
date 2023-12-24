@@ -27,6 +27,9 @@ module.exports = {
 		'promise',
 		'unicorn',
 	],
+	ignorePatterns: [
+		'dist/**/*',
+	],
 	rules: {
 		'array-bracket-spacing': [
 			'error',

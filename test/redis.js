@@ -4,7 +4,9 @@ import { createClient } from 'redis';
 
 export async function createRedisClient() {
 	const redisClient = createClient({
-		url: 'redis://localhost:29361',
+		socket: {
+			port: 29361,
+		},
 	});
 
 	await redisClient.connect();

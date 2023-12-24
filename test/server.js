@@ -10,6 +10,14 @@ tasqClient.serve({
 		echo({ name }) {
 			return `Hello, ${name ?? 'world'}!`;
 		},
+		timeout() {
+			return new Promise((resolve) => {
+				setTimeout(
+					resolve,
+					100,
+				);
+			});
+		},
 		userSync() {
 			return {
 				id: 1,
