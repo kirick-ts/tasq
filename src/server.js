@@ -23,6 +23,10 @@ export default class TasqServer {
 	#redis_channel;
 	#processes = 0;
 	#processes_max = 1;
+	// Indicates if the scheduler was started, but rejected due to the maximum number of processes being reached.
+	// In that case, the already running scheduler will start another scheduler when it finishes
+	// __even if__ it got no tasks from Redis.
+	#scheduler_bounced = false;
 
 	/**
 	 * @param {RedisClient} client The Redis client from "redis" package to be used.
@@ -72,7 +76,7 @@ export default class TasqServer {
 		await this.#client_sub.subscribe(
 			this.#redis_channel,
 			() => {
-				// console.log('New task available!\nRunning scheduler...');
+				// console.log('New task available! Running scheduler...');
 				this.#schedule();
 			},
 		);
@@ -96,8 +100,12 @@ export default class TasqServer {
 	 * @returns {Promise<void>}
 	 */
 	async #execute() {
+		// const _run_id = Math.random().toString(36).slice(2, 11);
+		// console.log(`[run ${_run_id}] Started`);
+
 		if (this.#processes >= this.#processes_max) {
-			// console.log('Maximum number of processes reached.');
+			// console.log(`[run ${_run_id}] Maximum number of processes reached.`);
+			this.#scheduler_bounced = true;
 			return;
 		}
 
@@ -120,7 +128,7 @@ export default class TasqServer {
 			] = cborDecode(task_buffer);
 
 			if (getTime() < ts_timeout) {
-				// console.log(`Running task with method "${method}"...`);
+				// console.log(`[run ${_run_id}] Running task with method "${method}" and arguments`, method_args);
 
 				const response = [
 					request_id,
@@ -161,18 +169,26 @@ export default class TasqServer {
 				);
 			}
 			// else {
-			// 	console.log('Task expired.');
+			// 	console.log(`[run ${_run_id}] Task expired.`);
 			// }
 		}
 		// else {
-		// 	console.log('No more tasks to execute.');
+		// 	console.log(`[run ${_run_id}] No more tasks to execute.`);
 		// }
 
 		this.#processes--;
 
-		if (has_task) {
+		if (
+			has_task
+			|| this.#scheduler_bounced
+		) {
+			// console.log(`[run ${_run_id}] Starting another scheduler...`);
+			this.#scheduler_bounced = false;
 			this.#schedule();
 		}
+		// else {
+		// 	console.log(`[run ${_run_id}] Scheduler finished.`);
+		// }
 	}
 
 	/**

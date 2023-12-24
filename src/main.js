@@ -87,7 +87,7 @@ export class Tasq {
 			request.push(data);
 		}
 
-		await this.#client_pub.multi()
+		await this.#client_pub.MULTI()
 			.RPUSH(
 				redis_key,
 				cborEncode(request),
@@ -100,7 +100,7 @@ export class Tasq {
 				getRedisChannelForRequest(topic),
 				'',
 			)
-			.exec();
+			.EXEC();
 
 		return Promise.race([
 			new Promise((resolve, reject) => {

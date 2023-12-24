@@ -79,6 +79,10 @@ var TasqServer = class {
   #redis_channel;
   #processes = 0;
   #processes_max = 1;
+  // Indicates if the scheduler was started, but rejected due to the maximum number of processes being reached.
+  // In that case, the already running scheduler will start another scheduler when it finishes
+  // __even if__ it got no tasks from Redis.
+  #scheduler_bounced = false;
   /**
    * @param {RedisClient} client The Redis client from "redis" package to be used.
    * @param {object} options The options for the server.
@@ -141,6 +145,7 @@ var TasqServer = class {
    */
   async #execute() {
     if (this.#processes >= this.#processes_max) {
+      this.#scheduler_bounced = true;
       return;
     }
     this.#processes++;
@@ -194,7 +199,8 @@ var TasqServer = class {
       }
     }
     this.#processes--;
-    if (has_task) {
+    if (has_task || this.#scheduler_bounced) {
+      this.#scheduler_bounced = false;
       this.#schedule();
     }
   }
@@ -268,7 +274,7 @@ var Tasq = class {
     if (data !== void 0) {
       request.push(data);
     }
-    await this.#client_pub.multi().RPUSH(
+    await this.#client_pub.MULTI().RPUSH(
       redis_key,
       (0, import_cbor_x2.encode)(request)
     ).PEXPIRE(
@@ -277,7 +283,7 @@ var Tasq = class {
     ).PUBLISH(
       getRedisChannelForRequest(topic),
       ""
-    ).exec();
+    ).EXEC();
     return Promise.race([
       new Promise((resolve, reject) => {
         this.#requests.set(
