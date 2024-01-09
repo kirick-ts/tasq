@@ -19,8 +19,6 @@ import {
 import createID                     from './id.js';
 import TasqServer                   from './server.js';
 
-const TIMEOUT = 10_000;
-
 export class Tasq {
 	#id = createID().toString('base64').replaceAll('=', '');
 
@@ -76,10 +74,19 @@ export class Tasq {
 	 * Schedules a new task.
 	 * @param {string} topic The topic of the task.
 	 * @param {string} method The method to be called.
-	 * @param {{[key: string]: any}} data The data to be passed to the method.
+	 * @param {{[key: string]: any} | null | undefined} [data] The data to be passed to the method.
+	 * @param {object | undefined} [options] The options for the task.
+	 * @param {number | undefined} [options.timeout] The timeout for the task.
 	 * @returns {Promise<{[key: string]: any} | [*]>} The result of the task.
 	 */
-	async request(topic, method, data) {
+	async request(
+		topic,
+		method,
+		data,
+		{
+			timeout = 10_000,
+		} = {},
+	) {
 		const request_id = createID();
 		const request_id_string = request_id.toString('hex');
 
@@ -88,10 +95,13 @@ export class Tasq {
 		const request = [
 			this.#id,
 			request_id,
-			getTime() + TIMEOUT,
+			getTime() + timeout,
 			method,
 		];
-		if (data !== undefined) {
+		if (
+			data !== null
+			&& data !== undefined
+		) {
 			request.push(data);
 		}
 
@@ -102,7 +112,7 @@ export class Tasq {
 			)
 			.PEXPIRE(
 				redis_key,
-				TIMEOUT,
+				timeout,
 			)
 			.PUBLISH(
 				getRedisChannelForRequest(topic),
@@ -137,7 +147,7 @@ export class Tasq {
 							),
 						);
 					},
-					TIMEOUT,
+					timeout,
 				);
 			}),
 		]);

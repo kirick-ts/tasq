@@ -1,6 +1,6 @@
 {
 	"name": "@kirick/tasq",
-	"version": "0.1.0-beta.104",
+	"version": "0.1.0-beta.105",
 	"description": "Schedule tasks for your microservices easily.",
 	"publishConfig": {
 		"access": "public",
@@ -36,7 +36,7 @@
 		"jest": "^29.7.0"
 	},
 	"scripts": {
-		"test": "bun run redis-up && npm run test-node && bun test",
+		"test": "bun run redis-up && bun test && npm run test-node",
 		"test-node": "NODE_OPTIONS=--experimental-vm-modules jest --forceExit",
 		"coverage": "bun run redis-up && bun test --coverage",
 		"build": "bun run build-cjs",

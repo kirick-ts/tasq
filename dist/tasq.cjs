@@ -215,7 +215,6 @@ var TasqServer = class {
 };
 
 // src/main.js
-var TIMEOUT = 1e4;
 var Tasq = class {
   #id = id_default().toString("base64").replaceAll("=", "");
   /**
@@ -264,20 +263,24 @@ var Tasq = class {
    * Schedules a new task.
    * @param {string} topic The topic of the task.
    * @param {string} method The method to be called.
-   * @param {{[key: string]: any}} data The data to be passed to the method.
+   * @param {{[key: string]: any} | null | undefined} [data] The data to be passed to the method.
+   * @param {object | undefined} [options] The options for the task.
+   * @param {number | undefined} [options.timeout] The timeout for the task.
    * @returns {Promise<{[key: string]: any} | [*]>} The result of the task.
    */
-  async request(topic, method, data) {
+  async request(topic, method, data, {
+    timeout = 1e4
+  } = {}) {
     const request_id = id_default();
     const request_id_string = request_id.toString("hex");
     const redis_key = getRedisKey(topic);
     const request = [
       this.#id,
       request_id,
-      getTime() + TIMEOUT,
+      getTime() + timeout,
       method
     ];
-    if (data !== void 0) {
+    if (data !== null && data !== void 0) {
       request.push(data);
     }
     await this.#client_pub.multi().RPUSH(
@@ -285,7 +288,7 @@ var Tasq = class {
       (0, import_cbor_x2.encode)(request)
     ).PEXPIRE(
       redis_key,
-      TIMEOUT
+      timeout
     ).PUBLISH(
       getRedisChannelForRequest(topic),
       ""
@@ -317,7 +320,7 @@ var Tasq = class {
               )
             );
           },
-          TIMEOUT
+          timeout
         );
       })
     ]);

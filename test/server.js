@@ -37,6 +37,16 @@ tasqClient.serve({
 				name: 'Tasq',
 			};
 		},
+		async slow() {
+			await new Promise((resolve) => {
+				setTimeout(
+					resolve,
+					500, // 500 ms
+				);
+			});
+
+			return 'OK';
+		},
 		error() {
 			throw new Error('Test error.');
 		},
