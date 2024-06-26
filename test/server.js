@@ -3,7 +3,7 @@ import { createClient } from './client.js';
 
 const tasqClient = await createClient();
 
-tasqClient.serve({
+export const tasqServer = tasqClient.serve({
 	topic: 'test',
 	threads: 2,
 	handlers: {
@@ -52,5 +52,3 @@ tasqClient.serve({
 		},
 	},
 });
-
-export default tasqClient;

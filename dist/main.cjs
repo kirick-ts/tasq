@@ -28,23 +28,34 @@ var import_cbor_x2 = require("cbor-x");
 var TasqError = class extends Error {
 };
 var TasqRequestError = class extends TasqError {
-  constructor(topic, method, data) {
+  /** @type {TasqAwaitingRequestState} */
+  state;
+  /**
+   * @param {TasqAwaitingRequestState} state -
+   */
+  constructor(state) {
     super();
-    this.request = {
-      topic,
-      method,
-      data
-    };
+    this.state = state;
   }
 };
 var TasqRequestTimeoutError = class extends TasqRequestError {
   message = "Request timeouted.";
 };
-var TasqRequestRejectedError = class extends TasqRequestError {
-  message = "Method failed to execute.";
-};
 var TasqRequestUnknownMethodError = class extends TasqRequestError {
   message = "Unknown method called.";
+};
+var TasqRequestRejectedError = class extends TasqRequestError {
+  message = "Method failed to execute.";
+  /** @type {number} */
+  response_status;
+  /**
+   * @param {TasqAwaitingRequestState} state -
+   * @param {number} [response_status] -
+   */
+  constructor(state, response_status) {
+    super(state);
+    this.response_status = response_status;
+  }
 };
 
 // src/fns.js
@@ -71,25 +82,54 @@ function id_default() {
 var import_redis = require("redis");
 var import_cbor_x = require("cbor-x");
 var TasqServer = class {
+  /**
+   * Redis client for executing commands.
+   * @type {import('redis').RedisClientType}
+   */
   #client_pub;
+  /**
+   * Redis client for subscribing to channels.
+   * @type {import('redis').RedisClientType}
+   */
   #client_sub;
+  /**
+   * The default handler for the tasks.
+   * @type {TasqServerDefaultHandler?}
+   */
   #handler;
-  #handlers;
+  /**
+   * The handlers for the tasks.
+   * @type {Record<string, TasqServerHandler>}
+   */
+  #handlers = {};
+  /**
+   * The Redis key where the tasks are stored.
+   * @type {string}
+   */
   #redis_key;
+  /**
+   * The Redis channel where the tasks are published.
+   * @type {string}
+   */
   #redis_channel;
+  /**
+   * The number of processes currently running.
+   * @type {number}
+   */
   #processes = 0;
+  /**
+   * The maximum number of processes to be run in parallel.
+   * @type {number}
+   */
   #processes_max = 1;
-  // Indicates if the scheduler was started, but rejected due to the maximum number of processes being reached.
-  // In that case, the already running scheduler will start another scheduler when it finishes
-  // __even if__ it got no tasks from Redis.
-  #scheduler_bounced = false;
+  /**
+   * Indicates if there are unresponded notifications.
+   * @type {boolean}
+   */
+  #has_unresponded_notification = false;
   /**
    * @param {import('redis').RedisClientType} client The Redis client from "redis" package to be used.
-   * @param {object} options The options for the server.
-   * @param {string} options.topic The topic to be used.
-   * @param {number | undefined} [options.threads] The maximum number of parallel tasks to be executed. Defaults to 1.
-   * @param {Function | undefined} [options.handler] The default handler to be used. If there is no handler for a method in the "handlers" object, this handler will be used.
-   * @param {object | undefined} [options.handlers] The handlers to be used. The keys are the method names and the values are the handlers.
+   * @param {TasqServerOptions} options The options for the server.
    */
   constructor(client, {
     topic,
@@ -101,15 +141,18 @@ var TasqServer = class {
     this.#prepareSubClient().catch((error) => {
       console.error(error);
     });
-    this.#handler = handler;
-    this.#handlers = handlers;
+    if (handler) {
+      this.#handler = handler;
+    }
+    if (handlers) {
+      this.#handlers = handlers;
+    }
     this.#redis_key = getRedisKey(topic);
     this.#redis_channel = getRedisChannelForRequest(topic);
     this.#processes_max = threads;
   }
   /**
    * Creates a new Redis client for the subscription.
-   * @private
    * @returns {Promise<void>}
    */
   async #prepareSubClient() {
@@ -124,31 +167,34 @@ var TasqServer = class {
     await this.#client_sub.subscribe(
       this.#redis_channel,
       () => {
-        this.#schedule();
+        this.#has_unresponded_notification = true;
+        this.#schedule(true);
       }
     );
     this.#schedule();
   }
   /**
    * Schedules a new task execute.
-   * @private
+   * @param {boolean} [by_notification] - Indicates if the task was scheduled by a Redis message.
    */
-  #schedule() {
-    this.#execute().catch((error) => {
+  #schedule(by_notification = false) {
+    this.#execute(by_notification).catch((error) => {
       console.error(error);
     });
   }
   /**
    * Gets a task from the queue and executes it.
-   * @private
+   * @param {boolean} [by_notification] - Indicates if the task was scheduled by a Redis message.
    * @returns {Promise<void>}
    */
-  async #execute() {
+  async #execute(by_notification = false) {
     if (this.#processes >= this.#processes_max) {
-      this.#scheduler_bounced = true;
       return;
     }
     this.#processes++;
+    if (by_notification) {
+      this.#has_unresponded_notification = false;
+    }
     const task_buffer = await this.#client_pub.LPOP(
       (0, import_redis.commandOptions)({
         returnBuffers: true
@@ -168,23 +214,24 @@ var TasqServer = class {
         const response = [
           request_id
         ];
-        let handler;
-        let handler_args;
-        if (typeof this.#handlers?.[method] === "function") {
-          handler = this.#handlers[method];
-          handler_args = [method_args];
-        } else if (typeof this.#handler === "function") {
-          handler = this.#handler;
-          handler_args = [
-            method,
-            method_args
-          ];
-        }
-        if (handler) {
+        const handler = this.#handlers[method];
+        if (typeof handler === "function") {
           try {
             response.push(
               0,
-              await handler(...handler_args)
+              await handler(method_args)
+            );
+          } catch {
+            response.push(1);
+          }
+        } else if (typeof this.#handler === "function") {
+          try {
+            response.push(
+              0,
+              await this.#handler(
+                method,
+                method_args
+              )
             );
           } catch {
             response.push(1);
@@ -199,9 +246,10 @@ var TasqServer = class {
       }
     }
     this.#processes--;
-    if (has_task || this.#scheduler_bounced) {
-      this.#scheduler_bounced = false;
-      this.#schedule();
+    if (has_task || this.#has_unresponded_notification) {
+      this.#schedule(
+        this.#has_unresponded_notification
+      );
     }
   }
   /**
@@ -218,17 +266,21 @@ var TasqServer = class {
 var Tasq = class {
   #id = id_default().toString("base64").replaceAll("=", "");
   /**
-   * @type {RedisClientType}
+   * @type {import('redis').RedisClientType}
    */
   #client_pub;
   /**
-   * @type {RedisClientType}
+   * @type {import('redis').RedisClientType}
    */
   #client_sub;
+  /**
+   * Active requests that are waiting for a response.
+   * @type {Map<string, { state: TasqAwaitingRequestState, resolve: (value: any) => void, reject: (error: Error) => void }>}
+   */
   #requests = /* @__PURE__ */ new Map();
   #servers = /* @__PURE__ */ new Set();
   /**
-   * @param {RedisClientType} client The Redis client from "redis" package to be used.
+   * @param {import('redis').RedisClientType} client The Redis client from "redis" package to be used.
    */
   constructor(client) {
     this.#client_pub = client;
@@ -238,7 +290,6 @@ var Tasq = class {
   }
   /**
    * Creates a new Redis client for the subscription.
-   * @private
    * @returns {Promise<void>}
    */
   async #prepareSubClient() {
@@ -263,10 +314,10 @@ var Tasq = class {
    * Schedules a new task.
    * @param {string} topic The topic of the task.
    * @param {string} method The method to be called.
-   * @param {{[key: string]: any} | null | undefined} [data] The data to be passed to the method.
-   * @param {object | undefined} [options] The options for the task.
-   * @param {number | undefined} [options.timeout] The timeout for the task.
-   * @returns {Promise<{[key: string]: any} | [*]>} The result of the task.
+   * @param {TasqRequestData} [data] The data to be passed to the method.
+   * @param {object} [options] The options for the task.
+   * @param {number} [options.timeout] The timeout for the task.
+   * @returns {Promise<TasqResponseData>} The result of the task.
    */
   async request(topic, method, data, {
     timeout = 1e4
@@ -280,8 +331,8 @@ var Tasq = class {
       getTime() + timeout,
       method
     ];
-    if (data !== null && data !== void 0) {
-      request.push(data);
+    if (data) {
+      request[4] = data;
     }
     await this.#client_pub.multi().RPUSH(
       redis_key,
@@ -298,7 +349,7 @@ var Tasq = class {
         this.#requests.set(
           request_id_string,
           {
-            request: [
+            state: [
               topic,
               method,
               data
@@ -308,16 +359,16 @@ var Tasq = class {
           }
         );
       }),
-      new Promise((resolve, reject) => {
+      new Promise((_resolve, reject) => {
         setTimeout(
           () => {
             this.#requests.delete(request_id_string);
             reject(
-              new TasqRequestTimeoutError(
+              new TasqRequestTimeoutError([
                 topic,
                 method,
                 data
-              )
+              ])
             );
           },
           timeout
@@ -327,9 +378,7 @@ var Tasq = class {
   }
   /**
    * Handles a response to a task.
-   * @private
    * @param {Buffer} message The message received.
-   * @returns {void}
    */
   #onResponse(message) {
     const [
@@ -340,7 +389,7 @@ var Tasq = class {
     const request_id_string = request_id.toString("hex");
     if (this.#requests.has(request_id_string)) {
       const {
-        request,
+        state,
         resolve,
         reject
       } = this.#requests.get(request_id_string);
@@ -351,12 +400,12 @@ var Tasq = class {
           break;
         case 1:
           reject(
-            new TasqRequestRejectedError(...request)
+            new TasqRequestRejectedError(state)
           );
           break;
         case 2:
           reject(
-            new TasqRequestUnknownMethodError(...request)
+            new TasqRequestUnknownMethodError(state)
           );
           break;
         default:
@@ -369,8 +418,8 @@ var Tasq = class {
       } else {
         reject(
           new TasqRequestRejectedError(
-            status,
-            ...request
+            state,
+            status
           )
         );
       }
@@ -378,7 +427,7 @@ var Tasq = class {
   }
   /**
    * Creates a new Tasq server.
-   * @param {{[key: string]: string}} options The options for the server.
+   * @param {TasqServerOptions} options The options for the server.
    * @returns {TasqServer} The Tasq server.
    */
   serve(options) {

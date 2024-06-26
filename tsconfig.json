@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"target": "es2022",
+		"noImplicitAny": true,
+		"checkJs": true,
+		"allowJs": true,
+		"moduleResolution": "node"
+	},
+	"include": [
+		"src/**/*"
+	],
+	"exclude": [
+		"node_modules/",
+		"dist/",
+		"**/*.test.js"
+	]
+}

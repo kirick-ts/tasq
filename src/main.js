@@ -1,12 +1,16 @@
 
 /**
- * @typedef {import('redis').RedisClientType} RedisClientType
+ * @typedef {import('./types.js').TasqAwaitingRequestState} TasqAwaitingRequestState
+ * @typedef {import('./types.js').TasqRedisRequest} TasqRedisRequest
+ * @typedef {import('./types.js').TasqRedisResponse} TasqRedisResponse
+ * @typedef {import('./types.js').TasqRequestData} TasqRequestData
+ * @typedef {import('./types.js').TasqResponseData} TasqResponseData
+ * @typedef {import('./types.js').TasqServerOptions} TasqServerOptions
  */
 
 import {
 	encode as cborEncode,
-	decode as cborDecode } from 'cbor-x';
-
+	decode as cborDecode }          from 'cbor-x';
 import {
 	TasqRequestTimeoutError,
 	TasqRequestRejectedError,
@@ -23,19 +27,23 @@ export class Tasq {
 	#id = createID().toString('base64').replaceAll('=', '');
 
 	/**
-	 * @type {RedisClientType}
+	 * @type {import('redis').RedisClientType}
 	 */
 	#client_pub;
 	/**
-	 * @type {RedisClientType}
+	 * @type {import('redis').RedisClientType}
 	 */
 	#client_sub;
 
+	/**
+	 * Active requests that are waiting for a response.
+	 * @type {Map<string, { state: TasqAwaitingRequestState, resolve: (value: any) => void, reject: (error: Error) => void }>}
+	 */
 	#requests = new Map();
 	#servers = new Set();
 
 	/**
-	 * @param {RedisClientType} client The Redis client from "redis" package to be used.
+	 * @param {import('redis').RedisClientType} client The Redis client from "redis" package to be used.
 	 */
 	constructor(client) {
 		this.#client_pub = client;
@@ -46,7 +54,6 @@ export class Tasq {
 
 	/**
 	 * Creates a new Redis client for the subscription.
-	 * @private
 	 * @returns {Promise<void>}
 	 */
 	async #prepareSubClient() {
@@ -74,10 +81,10 @@ export class Tasq {
 	 * Schedules a new task.
 	 * @param {string} topic The topic of the task.
 	 * @param {string} method The method to be called.
-	 * @param {{[key: string]: any} | null | undefined} [data] The data to be passed to the method.
-	 * @param {object | undefined} [options] The options for the task.
-	 * @param {number | undefined} [options.timeout] The timeout for the task.
-	 * @returns {Promise<{[key: string]: any} | [*]>} The result of the task.
+	 * @param {TasqRequestData} [data] The data to be passed to the method.
+	 * @param {object} [options] The options for the task.
+	 * @param {number} [options.timeout] The timeout for the task.
+	 * @returns {Promise<TasqResponseData>} The result of the task.
 	 */
 	async request(
 		topic,
@@ -92,17 +99,15 @@ export class Tasq {
 
 		const redis_key = getRedisKey(topic);
 
+		/** @type {TasqRedisRequest} */
 		const request = [
 			this.#id,
 			request_id,
 			getTime() + timeout,
 			method,
 		];
-		if (
-			data !== null
-			&& data !== undefined
-		) {
-			request.push(data);
+		if (data) {
+			request[4] = data;
 		}
 
 		await this.#client_pub.multi()
@@ -125,7 +130,7 @@ export class Tasq {
 				this.#requests.set(
 					request_id_string,
 					{
-						request: [
+						state: [
 							topic,
 							method,
 							data,
@@ -135,16 +140,16 @@ export class Tasq {
 					},
 				);
 			}),
-			new Promise((resolve, reject) => {
+			new Promise((_resolve, reject) => {
 				setTimeout(
 					() => {
 						this.#requests.delete(request_id_string);
 						reject(
-							new TasqRequestTimeoutError(
+							new TasqRequestTimeoutError([
 								topic,
 								method,
 								data,
-							),
+							]),
 						);
 					},
 					timeout,
@@ -155,11 +160,10 @@ export class Tasq {
 
 	/**
 	 * Handles a response to a task.
-	 * @private
 	 * @param {Buffer} message The message received.
-	 * @returns {void}
 	 */
 	#onResponse(message) {
+		/** @type {TasqRedisResponse} */
 		const [
 			request_id,
 			status,
@@ -170,7 +174,7 @@ export class Tasq {
 
 		if (this.#requests.has(request_id_string)) {
 			const {
-				request,
+				state,
 				resolve,
 				reject,
 			} = this.#requests.get(request_id_string);
@@ -183,12 +187,12 @@ export class Tasq {
 					break;
 				case 1:
 					reject(
-						new TasqRequestRejectedError(...request),
+						new TasqRequestRejectedError(state),
 					);
 					break;
 				case 2:
 					reject(
-						new TasqRequestUnknownMethodError(...request),
+						new TasqRequestUnknownMethodError(state),
 					);
 					break;
 				default:
@@ -203,8 +207,8 @@ export class Tasq {
 			else {
 				reject(
 					new TasqRequestRejectedError(
+						state,
 						status,
-						...request,
 					),
 				);
 			}
@@ -213,7 +217,7 @@ export class Tasq {
 
 	/**
 	 * Creates a new Tasq server.
-	 * @param {{[key: string]: string}} options The options for the server.
+	 * @param {TasqServerOptions} options The options for the server.
 	 * @returns {TasqServer} The Tasq server.
 	 */
 	serve(options) {

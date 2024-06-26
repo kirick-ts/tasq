@@ -1,15 +1,22 @@
 
-/* global describe, test, expect */
-
+import {
+	afterAll,
+	describe,
+	test,
+	expect }                        from 'vitest';
+import { createClient }             from '../test/client.js';
+import { tasqServer }               from '../test/server.js';
 import {
 	TasqRequestRejectedError,
 	TasqRequestTimeoutError,
 	TasqRequestUnknownMethodError } from './errors.js';
 
-import { createClient } from '../test/client.js';
-import '../test/server.js';
-
 const tasqClient = await createClient();
+
+afterAll(async () => {
+	await tasqClient.destroy();
+	await tasqServer.destroy();
+});
 
 describe('successfully responding to requests', () => {
 	test('method returning string', async () => {
