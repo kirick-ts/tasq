@@ -255,3 +255,8 @@ export class Tasq {
 		}
 	}
 }
+
+export { type TasqServer } from './server.js';
+export type {
+	TasqRequestData,
+} from './types.js';
