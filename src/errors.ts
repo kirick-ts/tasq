@@ -1,17 +1,10 @@
-
-/**
- * @typedef {import('./types.js').TasqAwaitingRequestState} TasqAwaitingRequestState
- */
+import type { TasqAwaitingRequestState } from './types.js';
 
 export class TasqError extends Error {}
 export class TasqRequestError extends TasqError {
-	/** @type {TasqAwaitingRequestState} */
-	state;
+	state: TasqAwaitingRequestState;
 
-	/**
-	 * @param {TasqAwaitingRequestState} state -
-	 */
-	constructor(state) {
+	constructor(state: TasqAwaitingRequestState) {
 		super();
 
 		this.state = state;
@@ -25,17 +18,17 @@ export class TasqRequestUnknownMethodError extends TasqRequestError {
 }
 export class TasqRequestRejectedError extends TasqRequestError {
 	message = 'Method failed to execute.';
-
-	/** @type {number} */
-	response_status;
+	response_status?: number;
 
 	/**
-	 * @param {TasqAwaitingRequestState} state -
-	 * @param {number} [response_status] -
+	 * @param state -
+	 * @param [response_status] -
 	 */
-	constructor(state, response_status) {
+	constructor(
+		state: TasqAwaitingRequestState,
+		response_status?: number,
+	) {
 		super(state);
-
 		this.response_status = response_status;
 	}
 }

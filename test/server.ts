@@ -1,23 +1,28 @@
+import { Tasq } from '../src/main.js';
+import { redisClient } from './redis.js';
 
-import { createClient } from './client.js';
-
-const tasqClient = await createClient();
+const tasqClient = new Tasq(redisClient);
 
 export const tasqServer = tasqClient.serve({
 	topic: 'test',
 	threads: 2,
 	handlers: {
-		echo({ name }) {
-			return `Hello, ${name ?? 'world'}!`;
+		echo(args) {
+			if (Array.isArray(args)) {
+				throw new TypeError('Invalid args.');
+			}
+
+			return `Hello, ${args?.name ?? 'world'}!`;
 		},
 		timeout() {
 			return new Promise((resolve) => {
 				setTimeout(
-					resolve,
+					() => resolve(undefined),
 					100,
 				);
 			});
 		},
+		// eslint-disable-next-line n/no-sync
 		userSync() {
 			return {
 				id: 1,

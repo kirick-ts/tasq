@@ -3,22 +3,25 @@ import {
 	afterAll,
 	describe,
 	test,
-	expect }                        from 'vitest';
-import { createClient }             from '../test/client.js';
-import { tasqServer }               from '../test/server.js';
+	expect,
+} from 'vitest';
+import { tasqServer } from '../test/server.js';
 import {
 	TasqRequestRejectedError,
 	TasqRequestTimeoutError,
-	TasqRequestUnknownMethodError } from './errors.js';
+	TasqRequestUnknownMethodError,
+} from './errors.js';
+import { redisClient } from '../test/redis.js';
+import { Tasq } from './main.js';
 
-const tasqClient = await createClient();
+const tasqClient = new Tasq(redisClient);
 
 afterAll(async () => {
 	await tasqClient.destroy();
 	await tasqServer.destroy();
 });
 
-describe('successfully responding to requests', () => {
+describe('success', () => {
 	test('method returning string', async () => {
 		const response = await tasqClient.request('test', 'echo');
 
@@ -119,7 +122,7 @@ describe('internal things', () => {
 			),
 		);
 
-		console.log('result', result);
+		// console.log('result', result);
 
 		// first 2 tasks should be executed in parallel
 		expect(
@@ -130,5 +133,20 @@ describe('internal things', () => {
 		expect(
 			result[2] - result[1],
 		).toBeGreaterThan(100);
+	});
+});
+
+describe('namespaced client', () => {
+	const tasqClientNamespaced = new Tasq(
+		redisClient,
+		{
+			namespace: 'test',
+		},
+	);
+
+	test('method returning string', async () => {
+		const response = await tasqClientNamespaced.request('test', 'echo');
+
+		expect(response).toBe('Hello, world!');
 	});
 });
