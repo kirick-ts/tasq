@@ -1,6 +1,6 @@
 {
 	"name": "@kirick/tasq",
-	"version": "0.3.0-beta.2",
+	"version": "0.3.0-dev",
 	"description": "Schedule tasks for your microservices easily.",
 	"publishConfig": {
 		"access": "public"
@@ -32,13 +32,13 @@
 	},
 	"scripts": {
 		"build": "bun run build:ts && bun run build:cjs",
-		"build:cjs": "bunx esbuild --bundle --platform=node --format=cjs --packages=external --outfile=dist/main.cjs dist/esm/main.js",
+		"build:cjs": "bun build src/main.ts --outfile=dist/main.cjs --platform=node --format=cjs --packages=external",
 		"build:ts": "rm -r dist/esm dist/types ; tsc",
+		"check": "bun run build && bun run lint && bun run test",
 		"lint": "eslint . && tsc --skipLibCheck --noemit && (cd test && tsc --skipLibCheck --noemit)",
-		"publish:npm": "bun run build && bun run lint && bun run test && npm publish",
 		"redis:up": "docker ps | grep test-redis >/dev/null || docker run --rm -d -p 16379:6379 --name test-redis redis:7-alpine",
 		"redis:down": "docker stop test-redis",
-		"test": "export REDIS_PORT=16379 ; bun run redis:up && npm run test:vitest && bun test --coverage",
+		"test": "bun run redis:up && npm run test:vitest && bun test --coverage",
 		"test:vitest": "vitest run --no-file-parallelism"
 	},
 	"repository": {

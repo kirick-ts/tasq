@@ -49,4 +49,5 @@ export declare class Tasq {
      */
     destroy(): Promise<void>;
 }
-export {};
+export type { TasqServer } from './server.js';
+export type { TasqRequestData } from './types.js';

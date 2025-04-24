@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/require-jsdoc */
 
 import {
 	afterAll,
@@ -13,8 +14,15 @@ import {
 } from './errors.js';
 import { redisClient } from '../test/redis.js';
 import { Tasq } from './main.js';
+import type { TasqResponseData } from './types.js';
 
 const tasqClient = new Tasq(redisClient);
+
+function asyncTimeout(ms: number) {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
 
 afterAll(async () => {
 	await tasqClient.destroy();
@@ -105,12 +113,7 @@ describe('internal things', () => {
 	test('running 2 tasks in parallel and scheduling 3rd task', async () => {
 		// should wait for task from "method running too slow" test to complete on the server
 		// it is still running there despite we threw an error on the client side
-		await new Promise((resolve) => {
-			setTimeout(
-				resolve,
-				500,
-			);
-		});
+		await asyncTimeout(500);
 
 		const performance_start = performance.now();
 
@@ -134,6 +137,34 @@ describe('internal things', () => {
 			result[2] - result[1],
 		).toBeGreaterThan(100);
 	});
+
+	// FIXME wait for bun to support options as the second argument
+	test('load server', async () => {
+		const promises: Promise<TasqResponseData>[] = [];
+		for (let run_id = 1; run_id <= 1000; run_id++) {
+			// eslint-disable-next-line no-await-in-loop
+			await asyncTimeout(Math.random() * 30);
+
+			promises.push(
+				tasqClient.request(
+					'test',
+					'userAsync',
+					undefined,
+					{
+						timeout: 100,
+					},
+				),
+			);
+		}
+
+		const result = await Promise.all(promises);
+		for (const result_one of result) {
+			expect(result_one).toStrictEqual({
+				id: 1,
+				name: 'Tasq',
+			});
+		}
+	}, { timeout: 1000 * 30 });
 });
 
 describe('namespaced client', () => {

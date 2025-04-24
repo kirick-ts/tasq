@@ -33,7 +33,7 @@ export const tasqServer = tasqClient.serve({
 			await new Promise((resolve) => {
 				setTimeout(
 					resolve,
-					10,
+					20,
 				);
 			});
 
