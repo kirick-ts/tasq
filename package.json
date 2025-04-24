@@ -18,7 +18,7 @@
 		"node": ">=16"
 	},
 	"dependencies": {
-		"cbor-x": "1.5.3"
+		"cbor-x": "1.6.0"
 	},
 	"peerDependencies": {
 		"redis": "^4.1"
@@ -27,8 +27,8 @@
 		"@kirick/eslint-config": "latest",
 		"@types/node": "^20.14.10",
 		"eslint": "9.10.0",
-		"typescript": "5.5.4",
-		"vitest": "2.1.1"
+		"typescript": "5.8.3",
+		"vitest": "3.1.2"
 	},
 	"scripts": {
 		"build": "bun run build:ts && bun run build:cjs",
