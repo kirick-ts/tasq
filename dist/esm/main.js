@@ -3,36 +3,48 @@ import { TasqRequestTimeoutError, TasqRequestRejectedError, TasqRequestUnknownMe
 import { getTime, getRedisKey, getRedisChannelForRequest, getRedisChannelForResponse, } from './fns.js';
 import { createId, createIdString, } from './id.js';
 import { TasqServer, } from './server.js';
+const symbol_no_new = Symbol('no_new');
 export class Tasq {
     id = createIdString();
-    client_pub;
-    client_sub;
+    redisClient;
+    redisSubClient;
+    is_redis_sub_client_internal = false;
     /** Active requests that are waiting for a response. */
     requests = new Map();
     servers = new Set();
     /**
-     * @param client The Redis client from "redis" package to be used.
-     * @param config The configuration for the Tasq instance.
+     * @param redisClient The Redis client from "redis" package to be used.
+     * @param options The configuration for the Tasq instance.
+     * @param no_new Symbol to prevent instantiation.
      */
-    constructor(client, config = {}) {
-        if (typeof config.namespace === 'string') {
-            this.id = `${config.namespace}:${this.id}`;
+    constructor(redisClient, options, no_new) {
+        if (no_new !== symbol_no_new) {
+            throw new Error('Do not use new Tasq(...), use createTasq(...) instead.');
         }
-        this.client_pub = client;
-        this.client_sub = this.client_pub.duplicate();
-        this.client_sub.on('error', 
-        // eslint-disable-next-line no-console
-        console.error);
-        // eslint-disable-next-line no-console
-        this.prepareSubClient().catch(console.error);
+        if (typeof options.namespace === 'string') {
+            this.id = `${options.namespace}:${this.id}`;
+        }
+        this.redisClient = redisClient;
+        if (options.redisSubClient) {
+            this.redisSubClient = options.redisSubClient;
+        }
+        else {
+            this.redisSubClient = redisClient.duplicate();
+            this.is_redis_sub_client_internal = true;
+        }
     }
     /**
-     * Creates a new Redis client for the subscription.
+     * Creates a new Redis client for the subscriptions.
      * @returns -
      */
-    async prepareSubClient() {
-        await this.client_sub.connect();
-        await this.client_sub.subscribe(getRedisChannelForResponse(this.id), (message) => {
+    async initSubClient() {
+        if (this.is_redis_sub_client_internal) {
+            this.redisSubClient.on('error', 
+            // eslint-disable-next-line no-console
+            console.error);
+            await this.redisSubClient.connect();
+        }
+        await this.redisSubClient.subscribe(getRedisChannelForResponse(this.id), (message) => {
             this.onResponse(message);
         }, true);
     }
@@ -58,7 +70,7 @@ export class Tasq {
         if (data) {
             request[4] = data;
         }
-        await this.client_pub.multi()
+        await this.redisClient.multi()
             .RPUSH(redis_key, CBOR.encode(request))
             .PEXPIRE(redis_key, timeout)
             .PUBLISH(getRedisChannelForRequest(topic), '')
@@ -124,7 +136,10 @@ export class Tasq {
      * @returns The Tasq server.
      */
     serve(options) {
-        const server = new TasqServer(this.client_pub, options);
+        const server = new TasqServer(this.redisClient, {
+            redisSubClient: this.redisSubClient,
+            ...options,
+        });
         this.servers.add(server);
         return server;
     }
@@ -133,11 +148,26 @@ export class Tasq {
      * @returns -
      */
     async destroy() {
-        await this.client_sub.unsubscribe();
-        await this.client_sub.disconnect();
+        await this.redisSubClient.unsubscribe(getRedisChannelForResponse(this.id));
         for (const server of this.servers) {
             // eslint-disable-next-line no-await-in-loop
             await server.destroy();
         }
+        if (this.is_redis_sub_client_internal) {
+            await this.redisSubClient.disconnect();
+        }
     }
 }
+/**
+ * Creates a new Tasq instance.
+ * @param redisClient The Redis client.
+ * @param options The options for the Tasq instance.
+ * @returns The Tasq instance.
+ */
+export async function createTasq(redisClient, options = {}) {
+    const tasq = new Tasq(redisClient, options, symbol_no_new);
+    // @ts-expect-error Accessing private property
+    await tasq.initSubClient();
+    return tasq;
+}
+export { TasqServer } from './server.js';

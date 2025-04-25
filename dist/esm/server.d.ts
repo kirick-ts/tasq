@@ -2,6 +2,7 @@ import type { MaybePromise, RedisClient, TasqRequestData, TasqResponseData } fro
 type TasqServerHandler = (args?: TasqRequestData) => MaybePromise<TasqResponseData>;
 type TasqServerDefaultHandler = (method: string, args?: TasqRequestData) => MaybePromise<TasqResponseData>;
 export interface TasqServerOptions {
+    redisSubClient?: RedisClient;
     topic: string;
     threads?: number;
     handler?: TasqServerDefaultHandler;
@@ -9,9 +10,11 @@ export interface TasqServerOptions {
 }
 export declare class TasqServer {
     /** Redis client for executing commands. */
-    private client_pub;
+    private redisClient;
     /** Redis client for subscribing to channels. */
-    private client_sub;
+    private redisSubClient;
+    /** Indicates if the redisSubClient was created internally. */
+    private is_redis_sub_client_internal;
     /** The default handler for the tasks. */
     private handler?;
     /** The handlers for the tasks. */
@@ -26,12 +29,12 @@ export declare class TasqServer {
     private processes_max;
     /**  Indicates if there are unresponded notifications. */
     private has_unresponded_notification;
-    constructor(client: RedisClient, { topic, threads, handler, handlers, }: TasqServerOptions);
+    constructor(redisClient: RedisClient, options: TasqServerOptions);
     /**
      * Creates a new Redis client for the subscription.
      * @returns -
      */
-    private prepareSubClient;
+    private initSubClient;
     /**
      * Schedules a new task execute.
      * @param [by_notification] - Indicates if the task was scheduled by a Redis message.

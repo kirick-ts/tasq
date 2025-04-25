@@ -42,6 +42,8 @@ var __export = (target, all) => {
 // src/main.ts
 var exports_main = {};
 __export(exports_main, {
+  createTasq: () => createTasq,
+  TasqServer: () => TasqServer,
   Tasq: () => Tasq
 });
 module.exports = __toCommonJS(exports_main);
@@ -103,8 +105,9 @@ function createIdString() {
 var import_redis = require("redis");
 var CBOR = __toESM(require("cbor-x"));
 class TasqServer {
-  client_pub;
-  client_sub;
+  redisClient;
+  redisSubClient;
+  is_redis_sub_client_internal = false;
   handler;
   handlers = {};
   redis_key;
@@ -112,29 +115,31 @@ class TasqServer {
   processes = 0;
   processes_max = 1;
   has_unresponded_notification = false;
-  constructor(client, {
-    topic,
-    threads = 1,
-    handler,
-    handlers
-  }) {
-    this.client_pub = client;
-    this.client_sub = this.client_pub.duplicate();
-    this.client_sub.on("error", console.error);
-    this.prepareSubClient().catch(console.error);
-    if (handler) {
-      this.handler = handler;
+  constructor(redisClient, options) {
+    this.redisClient = redisClient;
+    if (options.redisSubClient) {
+      this.redisSubClient = options.redisSubClient;
+    } else {
+      this.redisSubClient = redisClient.duplicate();
+      this.is_redis_sub_client_internal = true;
     }
-    if (handlers) {
-      this.handlers = handlers;
+    if (options.handler) {
+      this.handler = options.handler;
     }
-    this.redis_key = getRedisKey(topic);
-    this.redis_channel = getRedisChannelForRequest(topic);
-    this.processes_max = threads;
+    if (options.handlers) {
+      this.handlers = options.handlers;
+    }
+    this.redis_key = getRedisKey(options.topic);
+    this.redis_channel = getRedisChannelForRequest(options.topic);
+    this.processes_max = options.threads ?? 1;
+    this.initSubClient().catch(console.error);
   }
-  async prepareSubClient() {
-    await this.client_sub.connect();
-    await this.client_sub.subscribe(this.redis_channel, () => {
+  async initSubClient() {
+    if (this.is_redis_sub_client_internal) {
+      this.redisSubClient.on("error", console.error);
+      await this.redisSubClient.connect();
+    }
+    await this.redisSubClient.subscribe(this.redis_channel, () => {
       this.has_unresponded_notification = true;
       this.schedule(true);
     });
@@ -151,7 +156,7 @@ class TasqServer {
     if (by_notification) {
       this.has_unresponded_notification = false;
     }
-    const task_buffer = await this.client_pub.LPOP(import_redis.commandOptions({
+    const task_buffer = await this.redisClient.LPOP(import_redis.commandOptions({
       returnBuffers: true
     }), this.redis_key);
     const has_task = Buffer.isBuffer(task_buffer);
@@ -184,7 +189,7 @@ class TasqServer {
         } else {
           response[1] = 2;
         }
-        await this.client_pub.publish(getRedisChannelForResponse(client_id), CBOR.encode(response));
+        await this.redisClient.publish(getRedisChannelForResponse(client_id), CBOR.encode(response));
       }
     }
     this.processes--;
@@ -193,30 +198,44 @@ class TasqServer {
     }
   }
   async destroy() {
-    await this.client_sub.unsubscribe();
-    await this.client_sub.disconnect();
+    await this.redisSubClient.unsubscribe(this.redis_channel);
+    if (this.is_redis_sub_client_internal) {
+      await this.redisSubClient.disconnect();
+    }
   }
 }
 
 // src/main.ts
+var symbol_no_new = Symbol("no_new");
+
 class Tasq {
   id = createIdString();
-  client_pub;
-  client_sub;
+  redisClient;
+  redisSubClient;
+  is_redis_sub_client_internal = false;
   requests = new Map;
   servers = new Set;
-  constructor(client, config = {}) {
-    if (typeof config.namespace === "string") {
-      this.id = `${config.namespace}:${this.id}`;
+  constructor(redisClient, options, no_new) {
+    if (no_new !== symbol_no_new) {
+      throw new Error("Do not use new Tasq(...), use createTasq(...) instead.");
     }
-    this.client_pub = client;
-    this.client_sub = this.client_pub.duplicate();
-    this.client_sub.on("error", console.error);
-    this.prepareSubClient().catch(console.error);
+    if (typeof options.namespace === "string") {
+      this.id = `${options.namespace}:${this.id}`;
+    }
+    this.redisClient = redisClient;
+    if (options.redisSubClient) {
+      this.redisSubClient = options.redisSubClient;
+    } else {
+      this.redisSubClient = redisClient.duplicate();
+      this.is_redis_sub_client_internal = true;
+    }
   }
-  async prepareSubClient() {
-    await this.client_sub.connect();
-    await this.client_sub.subscribe(getRedisChannelForResponse(this.id), (message) => {
+  async initSubClient() {
+    if (this.is_redis_sub_client_internal) {
+      this.redisSubClient.on("error", console.error);
+      await this.redisSubClient.connect();
+    }
+    await this.redisSubClient.subscribe(getRedisChannelForResponse(this.id), (message) => {
       this.onResponse(message);
     }, true);
   }
@@ -235,7 +254,7 @@ class Tasq {
     if (data) {
       request[4] = data;
     }
-    await this.client_pub.multi().RPUSH(redis_key, CBOR2.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
+    await this.redisClient.multi().RPUSH(redis_key, CBOR2.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
     return Promise.race([
       new Promise((resolve, reject) => {
         this.requests.set(request_id_string, {
@@ -295,15 +314,25 @@ class Tasq {
     }
   }
   serve(options) {
-    const server = new TasqServer(this.client_pub, options);
+    const server = new TasqServer(this.redisClient, {
+      redisSubClient: this.redisSubClient,
+      ...options
+    });
     this.servers.add(server);
     return server;
   }
   async destroy() {
-    await this.client_sub.unsubscribe();
-    await this.client_sub.disconnect();
+    await this.redisSubClient.unsubscribe(getRedisChannelForResponse(this.id));
     for (const server of this.servers) {
       await server.destroy();
     }
+    if (this.is_redis_sub_client_internal) {
+      await this.redisSubClient.disconnect();
+    }
   }
+}
+async function createTasq(redisClient, options = {}) {
+  const tasq = new Tasq(redisClient, options, symbol_no_new);
+  await tasq.initSubClient();
+  return tasq;
 }

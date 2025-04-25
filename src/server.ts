@@ -19,6 +19,7 @@ type TasqServerHandler = (args?: TasqRequestData) => MaybePromise<TasqResponseDa
 type TasqServerDefaultHandler = (method: string, args?: TasqRequestData) => MaybePromise<TasqResponseData>;
 
 export interface TasqServerOptions {
+	redisSubClient?: RedisClient;
 	topic: string;
 	threads?: number;
 	handler?: TasqServerDefaultHandler;
@@ -27,9 +28,11 @@ export interface TasqServerOptions {
 
 export class TasqServer {
 	/** Redis client for executing commands. */
-	private client_pub: RedisClient;
+	private redisClient: RedisClient;
 	/** Redis client for subscribing to channels. */
-	private client_sub: RedisClient;
+	private redisSubClient: RedisClient;
+	/** Indicates if the redisSubClient was created internally. */
+	private is_redis_sub_client_internal = false;
 	/** The default handler for the tasks. */
 	private handler?: TasqServerDefaultHandler;
 	/** The handlers for the tasks. */
@@ -46,47 +49,52 @@ export class TasqServer {
 	private has_unresponded_notification: boolean = false;
 
 	constructor(
-		client: RedisClient,
-		{
-			topic,
-			threads = 1,
-			handler,
-			handlers,
-		}: TasqServerOptions,
+		redisClient: RedisClient,
+		options: TasqServerOptions,
 	) {
-		this.client_pub = client;
+		this.redisClient = redisClient;
 
-		this.client_sub = this.client_pub.duplicate();
-		this.client_sub.on(
-			'error',
-			// eslint-disable-next-line no-console
-			console.error,
-		);
-		this.prepareSubClient()
-			// eslint-disable-next-line no-console
-			.catch(console.error);
-
-		if (handler) {
-			this.handler = handler;
+		if (options.redisSubClient) {
+			this.redisSubClient = options.redisSubClient;
+		}
+		else {
+			this.redisSubClient = redisClient.duplicate();
+			this.is_redis_sub_client_internal = true;
 		}
 
-		if (handlers) {
-			this.handlers = handlers;
+		if (options.handler) {
+			this.handler = options.handler;
 		}
 
-		this.redis_key = getRedisKey(topic);
-		this.redis_channel = getRedisChannelForRequest(topic);
+		if (options.handlers) {
+			this.handlers = options.handlers;
+		}
 
-		this.processes_max = threads;
+		this.redis_key = getRedisKey(options.topic);
+		this.redis_channel = getRedisChannelForRequest(options.topic);
+
+		this.processes_max = options.threads ?? 1;
+
+		// eslint-disable-next-line no-console
+		this.initSubClient().catch(console.error);
 	}
 
 	/**
 	 * Creates a new Redis client for the subscription.
 	 * @returns -
 	 */
-	private async prepareSubClient() {
-		await this.client_sub.connect();
-		await this.client_sub.subscribe(
+	private async initSubClient() {
+		if (this.is_redis_sub_client_internal) {
+			this.redisSubClient.on(
+				'error',
+				// eslint-disable-next-line no-console
+				console.error,
+			);
+
+			await this.redisSubClient.connect();
+		}
+
+		await this.redisSubClient.subscribe(
 			this.redis_channel,
 			() => {
 				// console.log('New task available! Running scheduler...');
@@ -127,7 +135,7 @@ export class TasqServer {
 			this.has_unresponded_notification = false;
 		}
 
-		const task_buffer = await this.client_pub.LPOP(
+		const task_buffer = await this.redisClient.LPOP(
 			commandOptions({
 				returnBuffers: true,
 			}),
@@ -175,7 +183,7 @@ export class TasqServer {
 					response[1] = 2;
 				}
 
-				await this.client_pub.publish(
+				await this.redisClient.publish(
 					getRedisChannelForResponse(client_id),
 					CBOR.encode(response),
 				);
@@ -209,8 +217,11 @@ export class TasqServer {
 	 * @returns -
 	 */
 	async destroy() {
-		await this.client_sub.unsubscribe();
-		// await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode
-		await this.client_sub.disconnect();
+		await this.redisSubClient.unsubscribe(this.redis_channel);
+
+		// if redisSubClient was created by the server itself, disconnect it
+		if (this.is_redis_sub_client_internal) {
+			await this.redisSubClient.disconnect();
+		}
 	}
 }

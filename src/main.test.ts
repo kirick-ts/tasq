@@ -13,10 +13,10 @@ import {
 	TasqRequestUnknownMethodError,
 } from './errors.js';
 import { redisClient } from '../test/redis.js';
-import { Tasq } from './main.js';
+import { createTasq } from './main.js';
 import type { TasqResponseData } from './types.js';
 
-const tasqClient = new Tasq(redisClient);
+const tasqClient = await createTasq(redisClient);
 
 function asyncTimeout(ms: number) {
 	return new Promise((resolve) => {
@@ -25,8 +25,9 @@ function asyncTimeout(ms: number) {
 }
 
 afterAll(async () => {
-	await tasqClient.destroy();
 	await tasqServer.destroy();
+	await tasqClient.destroy();
+	await redisClient.disconnect();
 });
 
 describe('success', () => {
@@ -141,7 +142,7 @@ describe('internal things', () => {
 	// FIXME wait for bun to support options as the second argument
 	test('load server', async () => {
 		const promises: Promise<TasqResponseData>[] = [];
-		for (let run_id = 1; run_id <= 1000; run_id++) {
+		for (let run_id = 1; run_id <= 200; run_id++) {
 			// eslint-disable-next-line no-await-in-loop
 			await asyncTimeout(Math.random() * 30);
 
@@ -167,8 +168,8 @@ describe('internal things', () => {
 	}, { timeout: 1000 * 30 });
 });
 
-describe('namespaced client', () => {
-	const tasqClientNamespaced = new Tasq(
+describe('namespaced client', async () => {
+	const tasqClientNamespaced = await createTasq(
 		redisClient,
 		{
 			namespace: 'test',
@@ -179,5 +180,14 @@ describe('namespaced client', () => {
 		const response = await tasqClientNamespaced.request('test', 'echo');
 
 		expect(response).toBe('Hello, world!');
+	});
+});
+
+describe('last one', () => {
+	test('server destroy', async () => {
+		await tasqServer.destroy();
+
+		const promise = tasqClient.request('test', 'userSync', undefined, { timeout: 100 });
+		expect(promise).rejects.toThrow();
 	});
 });

@@ -1,9 +1,13 @@
-import { Tasq } from '../src/main.js';
+import {
+	createTasq,
+	// TasqServer,
+} from '../src/main.js';
 import { redisClient } from './redis.js';
 
-const tasqClient = new Tasq(redisClient);
+const tasqClient = await createTasq(redisClient);
 
 export const tasqServer = tasqClient.serve({
+// export const tasqServer = new TasqServer(redisClient, {
 	topic: 'test',
 	threads: 2,
 	handlers: {

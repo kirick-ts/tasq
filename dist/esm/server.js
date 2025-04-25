@@ -3,9 +3,11 @@ import * as CBOR from 'cbor-x';
 import { getTime, getRedisKey, getRedisChannelForRequest, getRedisChannelForResponse, } from './fns.js';
 export class TasqServer {
     /** Redis client for executing commands. */
-    client_pub;
+    redisClient;
     /** Redis client for subscribing to channels. */
-    client_sub;
+    redisSubClient;
+    /** Indicates if the redisSubClient was created internally. */
+    is_redis_sub_client_internal = false;
     /** The default handler for the tasks. */
     handler;
     /** The handlers for the tasks. */
@@ -20,32 +22,39 @@ export class TasqServer {
     processes_max = 1;
     /**  Indicates if there are unresponded notifications. */
     has_unresponded_notification = false;
-    constructor(client, { topic, threads = 1, handler, handlers, }) {
-        this.client_pub = client;
-        this.client_sub = this.client_pub.duplicate();
-        this.client_sub.on('error', 
+    constructor(redisClient, options) {
+        this.redisClient = redisClient;
+        if (options.redisSubClient) {
+            this.redisSubClient = options.redisSubClient;
+        }
+        else {
+            this.redisSubClient = redisClient.duplicate();
+            this.is_redis_sub_client_internal = true;
+        }
+        if (options.handler) {
+            this.handler = options.handler;
+        }
+        if (options.handlers) {
+            this.handlers = options.handlers;
+        }
+        this.redis_key = getRedisKey(options.topic);
+        this.redis_channel = getRedisChannelForRequest(options.topic);
+        this.processes_max = options.threads ?? 1;
         // eslint-disable-next-line no-console
-        console.error);
-        this.prepareSubClient()
-            // eslint-disable-next-line no-console
-            .catch(console.error);
-        if (handler) {
-            this.handler = handler;
-        }
-        if (handlers) {
-            this.handlers = handlers;
-        }
-        this.redis_key = getRedisKey(topic);
-        this.redis_channel = getRedisChannelForRequest(topic);
-        this.processes_max = threads;
+        this.initSubClient().catch(console.error);
     }
     /**
      * Creates a new Redis client for the subscription.
      * @returns -
      */
-    async prepareSubClient() {
-        await this.client_sub.connect();
-        await this.client_sub.subscribe(this.redis_channel, () => {
+    async initSubClient() {
+        if (this.is_redis_sub_client_internal) {
+            this.redisSubClient.on('error', 
+            // eslint-disable-next-line no-console
+            console.error);
+            await this.redisSubClient.connect();
+        }
+        await this.redisSubClient.subscribe(this.redis_channel, () => {
             // console.log('New task available! Running scheduler...');
             this.has_unresponded_notification = true;
             this.schedule(true);
@@ -77,7 +86,7 @@ export class TasqServer {
         if (by_notification) {
             this.has_unresponded_notification = false;
         }
-        const task_buffer = await this.client_pub.LPOP(commandOptions({
+        const task_buffer = await this.redisClient.LPOP(commandOptions({
             returnBuffers: true,
         }), this.redis_key);
         const has_task = Buffer.isBuffer(task_buffer);
@@ -109,7 +118,7 @@ export class TasqServer {
                 else {
                     response[1] = 2;
                 }
-                await this.client_pub.publish(getRedisChannelForResponse(client_id), CBOR.encode(response));
+                await this.redisClient.publish(getRedisChannelForResponse(client_id), CBOR.encode(response));
             }
             // else {
             // 	console.log(`[run ${_run_id}] Task expired.`);
@@ -133,8 +142,10 @@ export class TasqServer {
      * @returns -
      */
     async destroy() {
-        await this.client_sub.unsubscribe();
-        // await this.#client_sub.QUIT(); // Error: Cannot send commands in PubSub mode
-        await this.client_sub.disconnect();
+        await this.redisSubClient.unsubscribe(this.redis_channel);
+        // if redisSubClient was created by the server itself, disconnect it
+        if (this.is_redis_sub_client_internal) {
+            await this.redisSubClient.disconnect();
+        }
     }
 }

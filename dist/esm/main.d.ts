@@ -1,25 +1,29 @@
 import { TasqServer, type TasqServerOptions } from './server.js';
 import type { RedisClient, TasqRequestData, TasqResponseData } from './types.js';
 interface TasqOptions {
+    redisSubClient?: RedisClient;
     namespace?: string;
 }
+declare const symbol_no_new: unique symbol;
 export declare class Tasq {
     private id;
-    private client_pub;
-    private client_sub;
+    private redisClient;
+    private redisSubClient;
+    private is_redis_sub_client_internal;
     /** Active requests that are waiting for a response. */
     private requests;
     private servers;
     /**
-     * @param client The Redis client from "redis" package to be used.
-     * @param config The configuration for the Tasq instance.
+     * @param redisClient The Redis client from "redis" package to be used.
+     * @param options The configuration for the Tasq instance.
+     * @param no_new Symbol to prevent instantiation.
      */
-    constructor(client: RedisClient, config?: TasqOptions);
+    constructor(redisClient: RedisClient, options: TasqOptions, no_new: typeof symbol_no_new);
     /**
-     * Creates a new Redis client for the subscription.
+     * Creates a new Redis client for the subscriptions.
      * @returns -
      */
-    private prepareSubClient;
+    private initSubClient;
     /**
      * Schedules a new task.
      * @param topic The topic of the task.
@@ -49,5 +53,12 @@ export declare class Tasq {
      */
     destroy(): Promise<void>;
 }
-export type { TasqServer } from './server.js';
+/**
+ * Creates a new Tasq instance.
+ * @param redisClient The Redis client.
+ * @param options The options for the Tasq instance.
+ * @returns The Tasq instance.
+ */
+export declare function createTasq(redisClient: RedisClient, options?: TasqOptions): Promise<Tasq>;
+export { TasqServer } from './server.js';
 export type { TasqRequestData } from './types.js';

@@ -28,13 +28,17 @@ import type {
 } from './types.js';
 
 interface TasqOptions {
+	redisSubClient?: RedisClient;
 	namespace?: string;
 }
 
+const symbol_no_new = Symbol('no_new');
+
 export class Tasq {
 	private id = createIdString();
-	private client_pub: RedisClient;
-	private client_sub: RedisClient;
+	private redisClient: RedisClient;
+	private redisSubClient: RedisClient;
+	private is_redis_sub_client_internal = false;
 	/** Active requests that are waiting for a response. */
 	private requests = new Map<
 		string,
@@ -47,37 +51,50 @@ export class Tasq {
 	private servers = new Set<TasqServer>();
 
 	/**
-	 * @param client The Redis client from "redis" package to be used.
-	 * @param config The configuration for the Tasq instance.
+	 * @param redisClient The Redis client from "redis" package to be used.
+	 * @param options The configuration for the Tasq instance.
+	 * @param no_new Symbol to prevent instantiation.
 	 */
 	constructor(
-		client: RedisClient,
-		config: TasqOptions = {},
+		redisClient: RedisClient,
+		options: TasqOptions,
+		no_new: typeof symbol_no_new,
 	) {
-		if (typeof config.namespace === 'string') {
-			this.id = `${config.namespace}:${this.id}`;
+		if (no_new !== symbol_no_new) {
+			throw new Error('Do not use new Tasq(...), use createTasq(...) instead.');
 		}
 
-		this.client_pub = client;
+		if (typeof options.namespace === 'string') {
+			this.id = `${options.namespace}:${this.id}`;
+		}
 
-		this.client_sub = this.client_pub.duplicate();
-		this.client_sub.on(
-			'error',
-			// eslint-disable-next-line no-console
-			console.error,
-		);
+		this.redisClient = redisClient;
 
-		// eslint-disable-next-line no-console
-		this.prepareSubClient().catch(console.error);
+		if (options.redisSubClient) {
+			this.redisSubClient = options.redisSubClient;
+		}
+		else {
+			this.redisSubClient = redisClient.duplicate();
+			this.is_redis_sub_client_internal = true;
+		}
 	}
 
 	/**
-	 * Creates a new Redis client for the subscription.
+	 * Creates a new Redis client for the subscriptions.
 	 * @returns -
 	 */
-	private async prepareSubClient() {
-		await this.client_sub.connect();
-		await this.client_sub.subscribe(
+	private async initSubClient() {
+		if (this.is_redis_sub_client_internal) {
+			this.redisSubClient.on(
+				'error',
+				// eslint-disable-next-line no-console
+				console.error,
+			);
+
+			await this.redisSubClient.connect();
+		}
+
+		await this.redisSubClient.subscribe(
 			getRedisChannelForResponse(this.id),
 			(message) => {
 				this.onResponse(message);
@@ -118,7 +135,7 @@ export class Tasq {
 			request[4] = data;
 		}
 
-		await this.client_pub.multi()
+		await this.redisClient.multi()
 			.RPUSH(
 				redis_key,
 				CBOR.encode(request),
@@ -232,8 +249,11 @@ export class Tasq {
 	 */
 	serve(options: TasqServerOptions): TasqServer {
 		const server = new TasqServer(
-			this.client_pub,
-			options,
+			this.redisClient,
+			{
+				redisSubClient: this.redisSubClient,
+				...options,
+			},
 		);
 
 		this.servers.add(server);
@@ -246,15 +266,37 @@ export class Tasq {
 	 * @returns -
 	 */
 	async destroy() {
-		await this.client_sub.unsubscribe();
-		await this.client_sub.disconnect();
+		await this.redisSubClient.unsubscribe(
+			getRedisChannelForResponse(this.id),
+		);
 
 		for (const server of this.servers) {
 			// eslint-disable-next-line no-await-in-loop
 			await server.destroy();
 		}
+
+		if (this.is_redis_sub_client_internal) {
+			await this.redisSubClient.disconnect();
+		}
 	}
 }
 
-export type { TasqServer } from './server.js';
+/**
+ * Creates a new Tasq instance.
+ * @param redisClient The Redis client.
+ * @param options The options for the Tasq instance.
+ * @returns The Tasq instance.
+ */
+export async function createTasq(
+	redisClient: RedisClient,
+	options: TasqOptions = {},
+) {
+	const tasq = new Tasq(redisClient, options, symbol_no_new);
+	// @ts-expect-error Accessing private property
+	await tasq.initSubClient();
+
+	return tasq;
+}
+
+export { TasqServer } from './server.js';
 export type { TasqRequestData } from './types.js';
