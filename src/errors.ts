@@ -11,13 +11,13 @@ export class TasqRequestError extends TasqError {
 	}
 }
 export class TasqRequestTimeoutError extends TasqRequestError {
-	message = 'Request timeouted.';
+	override message = 'Request timeouted.';
 }
 export class TasqRequestUnknownMethodError extends TasqRequestError {
-	message = 'Unknown method called.';
+	override message = 'Unknown method called.';
 }
 export class TasqRequestRejectedError extends TasqRequestError {
-	message = 'Method failed to execute.';
+	override message = 'Method failed to execute.';
 	response_status?: number;
 
 	/**

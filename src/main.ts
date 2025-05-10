@@ -32,7 +32,7 @@ interface TasqOptions {
 	namespace?: string;
 }
 
-const symbol_no_new = Symbol('no_new');
+const symbol_no_new: symbol = Symbol('no_new');
 
 export class Tasq {
 	private id = createIdString();
@@ -118,6 +118,8 @@ export class Tasq {
 		data?: TasqRequestData,
 		{
 			timeout = 10_000,
+		}: {
+			timeout?: number,
 		} = {},
 	): Promise<TasqResponseData> {
 		const request_id = createId();
@@ -265,7 +267,7 @@ export class Tasq {
 	 * Destroys the Tasq instance.
 	 * @returns -
 	 */
-	async destroy() {
+	async destroy(): Promise<void> {
 		await this.redisSubClient.unsubscribe(
 			getRedisChannelForResponse(this.id),
 		);
@@ -290,7 +292,7 @@ export class Tasq {
 export async function createTasq(
 	redisClient: RedisClient,
 	options: TasqOptions = {},
-) {
+): Promise<Tasq> {
 	const tasq = new Tasq(redisClient, options, symbol_no_new);
 	// @ts-expect-error Accessing private property
 	await tasq.initSubClient();

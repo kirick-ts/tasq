@@ -118,13 +118,11 @@ describe('internal things', () => {
 
 		const performance_start = performance.now();
 
-		const result = await Promise.all(
-			Array.from(
-				{ length: 3 },
-				() => tasqClient.request('test', 'timeout')
-					.then(() => performance.now() - performance_start),
-			),
-		);
+		const result = await Promise.all([
+			tasqClient.request('test', 'timeout').then(() => performance.now() - performance_start),
+			tasqClient.request('test', 'timeout').then(() => performance.now() - performance_start),
+			tasqClient.request('test', 'timeout').then(() => performance.now() - performance_start),
+		]);
 
 		// console.log('result', result);
 

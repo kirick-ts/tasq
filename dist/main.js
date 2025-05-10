@@ -1,30 +1,7 @@
-"use strict";
-//#region rolldown:runtime
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __copyProps = (to, from, except, desc) => {
-	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
-		key = keys[i];
-		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
-			get: ((k) => from[k]).bind(null, key),
-			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
-		});
-	}
-	return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
-	value: mod,
-	enumerable: true
-}) : target, mod));
-
-//#endregion
-const cbor_x = __toESM(require("cbor-x"));
-const node_crypto = __toESM(require("node:crypto"));
-const redis = __toESM(require("redis"));
+import * as CBOR$1 from "cbor-x";
+import * as CBOR from "cbor-x";
+import { randomBytes } from "node:crypto";
+import { commandOptions } from "redis";
 
 //#region src/errors.ts
 var TasqError = class extends Error {};
@@ -95,7 +72,7 @@ function getRedisChannelForResponse(client_id) {
 * @returns The generated ID.
 */
 function createId() {
-	return (0, node_crypto.randomBytes)(6);
+	return randomBytes(6);
 }
 /**
 * Generates a random ID.
@@ -177,10 +154,10 @@ var TasqServer = class {
 		if (this.processes >= this.processes_max) return;
 		this.processes++;
 		if (by_notification) this.has_unresponded_notification = false;
-		const task_buffer = await this.redisClient.LPOP((0, redis.commandOptions)({ returnBuffers: true }), this.redis_key);
+		const task_buffer = await this.redisClient.LPOP(commandOptions({ returnBuffers: true }), this.redis_key);
 		const has_task = Buffer.isBuffer(task_buffer);
 		if (has_task) {
-			const [client_id, request_id, ts_timeout, method, method_args] = cbor_x.decode(task_buffer);
+			const [client_id, request_id, ts_timeout, method, method_args] = CBOR$1.decode(task_buffer);
 			if (getTime() < ts_timeout) {
 				const response = [request_id, 0];
 				const handler = this.handlers[method];
@@ -195,7 +172,7 @@ var TasqServer = class {
 					response[1] = 1;
 				}
 				else response[1] = 2;
-				await this.redisClient.publish(getRedisChannelForResponse(client_id), cbor_x.encode(response));
+				await this.redisClient.publish(getRedisChannelForResponse(client_id), CBOR$1.encode(response));
 			}
 		}
 		this.processes--;
@@ -274,7 +251,7 @@ var Tasq = class {
 			method
 		];
 		if (data) request[4] = data;
-		await this.redisClient.multi().RPUSH(redis_key, cbor_x.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
+		await this.redisClient.multi().RPUSH(redis_key, CBOR.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
 		return Promise.race([new Promise((resolve, reject) => {
 			this.requests.set(request_id_string, {
 				state: [
@@ -301,7 +278,7 @@ var Tasq = class {
 	* @param message The message received.
 	*/
 	onResponse(message) {
-		const [request_id, status, data] = cbor_x.decode(message);
+		const [request_id, status, data] = CBOR.decode(message);
 		const request_id_string = request_id.toString("hex");
 		if (this.requests.has(request_id_string)) {
 			const { state, resolve, reject } = this.requests.get(request_id_string);
@@ -358,6 +335,4 @@ async function createTasq(redisClient, options = {}) {
 }
 
 //#endregion
-exports.Tasq = Tasq
-exports.TasqServer = TasqServer
-exports.createTasq = createTasq
+export { Tasq, TasqServer, createTasq };

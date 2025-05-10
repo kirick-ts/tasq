@@ -1,22 +1,18 @@
 {
-	"compileOnSave": false,
-	"exclude": [
-		"dist/",
-		"node_modules/"
-	],
 	"compilerOptions": {
-		"outDir": "/dev/null",
-		"declaration": false,
-		"target": "esnext",
-		"module": "nodenext",
 		"esModuleInterop": true,
-		"allowSyntheticDefaultImports": true,
-		"lib": [
-			"ESNext",
-			"ES2021.String"
-		],
 		"skipLibCheck": true,
+		"target": "es2022",
+		"moduleDetection": "force",
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
 		"strict": true,
-		"removeComments": false
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"module": "preserve",
+		"noEmit": true,
+		"lib": [
+			"es2022"
+		]
 	}
 }

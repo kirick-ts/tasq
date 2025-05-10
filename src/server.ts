@@ -216,7 +216,7 @@ export class TasqServer {
 	 * Destroys the server.
 	 * @returns -
 	 */
-	async destroy() {
+	async destroy(): Promise<void> {
 		await this.redisSubClient.unsubscribe(this.redis_channel);
 
 		// if redisSubClient was created by the server itself, disconnect it

@@ -1,22 +1,31 @@
+# ignore source files of the Typescript project
+src/
+
 # ignore tests
 **/*.test.*
 **/*.test.d.ts
 test/
-
-# ignore source files of the Typescript project
-src/
+test-d/
 
 # ignore configs
 .luarc.json
 biome.json
 # these names cannot be declared using {js,mjs,cjs} syntax
-# is this case rule n/no-unpublished-import screams at me
+# is this case rule n/no-unpublished-import yells at me
 eslint.config.js
 eslint.config.mjs
 eslint.config.cjs
 tsconfig.json
+tsconfig.*.json
 vitest.config.js
 vitest.config.ts
+
+# ignore lockfiles
+bun.lock
+bun.lockb
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
 
 # ignore repo configs
 .github/
@@ -25,6 +34,3 @@ vitest.config.ts
 # ignore IDE files
 .idea
 .nova
-
-# ignore additional files
-node_modules*
