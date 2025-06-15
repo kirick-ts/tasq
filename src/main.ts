@@ -137,22 +137,9 @@ export class Tasq {
 			request[4] = data;
 		}
 
-		await this.redisClient.multi()
-			.RPUSH(
-				redis_key,
-				CBOR.encode(request),
-			)
-			.PEXPIRE(
-				redis_key,
-				timeout,
-			)
-			.PUBLISH(
-				getRedisChannelForRequest(topic),
-				'',
-			)
-			.exec();
+		// console.log('Sending request', request_id_string);
 
-		return Promise.race([
+		const promise = Promise.race([
 			new Promise<TasqResponseData>((resolve, reject) => {
 				this.requests.set(
 					request_id_string,
@@ -183,6 +170,23 @@ export class Tasq {
 				);
 			}),
 		]);
+
+		await this.redisClient.multi()
+			.RPUSH(
+				redis_key,
+				CBOR.encode(request),
+			)
+			.PEXPIRE(
+				redis_key,
+				timeout,
+			)
+			.PUBLISH(
+				getRedisChannelForRequest(topic),
+				'',
+			)
+			.exec();
+
+		return promise;
 	}
 
 	/**
@@ -197,6 +201,7 @@ export class Tasq {
 		]: TasqRedisResponse = CBOR.decode(message);
 
 		const request_id_string = request_id.toString('hex');
+		// console.log('Received response', request_id_string);
 
 		if (this.requests.has(request_id_string)) {
 			const {
@@ -213,33 +218,15 @@ export class Tasq {
 					break;
 
 				case 1:
-					reject(
-						new TasqRequestRejectedError(state),
-					);
+					reject(new TasqRequestRejectedError(state));
 					break;
 
 				case 2:
-					reject(
-						new TasqRequestUnknownMethodError(state),
-					);
+					reject(new TasqRequestUnknownMethodError(state));
 					break;
 
 				default:
-					reject(
-						new Error('Unknown response status.'),
-					);
-			}
-
-			if (status === 0) {
-				resolve(data);
-			}
-			else {
-				reject(
-					new TasqRequestRejectedError(
-						state,
-						status,
-					),
-				);
+					reject(new Error('Unknown response status.'));
 			}
 		}
 	}

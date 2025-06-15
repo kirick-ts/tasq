@@ -55,5 +55,37 @@ export const tasqServer = tasqClient.serve({
 		error() {
 			throw new Error('Test error.');
 		},
+		async randomResult(args) {
+			// console.log('randomResult', args);
+			if (Array.isArray(args)) {
+				throw new TypeError('Invalid args.');
+			}
+
+			if (args?.expected_result === 'timeout') {
+				await new Promise((resolve) => {
+					setTimeout(
+						resolve,
+						200,
+					);
+				});
+			}
+
+			// await new Promise((resolve) => {
+			// 	setTimeout(
+			// 		resolve,
+			// 		Math.random() * 50, // up to 50 ms
+			// 	);
+			// });
+
+			if (args?.expected_result === 'throw') {
+				throw new Error('Random error.');
+			}
+
+			if (args?.expected_result === 'reply') {
+				return 'OK';
+			}
+
+			throw new TypeError('Invalid args.');
+		},
 	},
 });

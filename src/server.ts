@@ -97,7 +97,7 @@ export class TasqServer {
 		await this.redisSubClient.subscribe(
 			this.redis_channel,
 			() => {
-				// console.log('New task available! Running scheduler...');
+				console.log('Got notification! Running scheduler...');
 				this.has_unresponded_notification = true;
 				this.schedule(true);
 			},
@@ -118,15 +118,17 @@ export class TasqServer {
 
 	/**
 	 * Gets a task from the queue and executes it.
-	 * @param [by_notification] - Indicates if the task was scheduled by a Redis message.
+	 * @param by_notification - Indicates if the task was scheduled by a Redis message.
 	 * @returns -
 	 */
 	private async execute(by_notification: boolean = false) {
-		// const _run_id = Math.random().toString(36).slice(2, 11);
-		// console.log(`[run ${_run_id}] Started`);
+		const _run_id = Math.random()
+			.toString(36)
+			.slice(2, 11);
+		console.log(`[run ${_run_id}] Starting process (processes = ${this.processes}, processes_max = ${this.processes_max})`);
 
 		if (this.processes >= this.processes_max) {
-			// console.log(`[run ${_run_id}] Maximum number of processes reached.`);
+			console.log(`[run ${_run_id}] Maximum number of processes reached.`);
 			return;
 		}
 
@@ -152,7 +154,7 @@ export class TasqServer {
 			]: TasqRedisRequest = CBOR.decode(task_buffer);
 
 			if (getTime() < ts_timeout) {
-				// console.log(`[run ${_run_id}] Running task with method "${method}" and arguments`, method_args);
+				console.log(`[run ${_run_id}] Running task with method "${method}" and arguments`, method_args);
 
 				const response: TasqRedisResponse = [
 					request_id,
@@ -183,33 +185,37 @@ export class TasqServer {
 					response[1] = 2;
 				}
 
+				console.log(`[run ${_run_id}] Response to return`, response);
+
 				await this.redisClient.publish(
 					getRedisChannelForResponse(client_id),
 					CBOR.encode(response),
 				);
 			}
-			// else {
-			// 	console.log(`[run ${_run_id}] Task expired.`);
-			// }
+			else {
+				console.log(`[run ${_run_id}] Task expired.`);
+			}
 		}
-		// else {
-		// 	console.log(`[run ${_run_id}] No more tasks to execute.`);
-		// }
+		else {
+			console.log(`[run ${_run_id}] No more tasks to execute.`);
+		}
 
 		this.processes--;
+
+		console.log(`[run ${_run_id}] Process ended (processes = ${this.processes}, processes_max = ${this.processes_max})`);
 
 		if (
 			has_task
 			|| this.has_unresponded_notification
 		) {
-			// console.log(`[run ${_run_id}] Starting another scheduler...`);
+			console.log(`[run ${_run_id}] Starting another scheduler...`);
 			this.schedule(
 				this.has_unresponded_notification,
 			);
 		}
-		// else {
-		// 	console.log(`[run ${_run_id}] Scheduler finished.`);
-		// }
+		else {
+			console.log(`[run ${_run_id}] Scheduler finished.`);
+		}
 	}
 
 	/**

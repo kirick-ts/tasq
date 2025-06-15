@@ -1,6 +1,6 @@
 {
 	"name": "@kirick/tasq",
-	"version": "0.3.1",
+	"version": "0.3.2-dev",
 	"description": "Schedule tasks for your microservices easily.",
 	"publishConfig": {
 		"access": "public"
@@ -10,6 +10,10 @@
 	"types": "dist/main.d.ts",
 	"exports": {
 		".": {
+			"types": {
+				"import": "./dist/main.d.ts",
+				"require": "./dist/main.d.cts"
+			},
 			"import": "./dist/main.js",
 			"require": "./dist/main.cjs"
 		}
@@ -35,8 +39,8 @@
 		"vitest": "3.1.2"
 	},
 	"scripts": {
-		"build": "tsdown src/main.ts --publint --unused --dts --format esm --format cjs && rm dist/main.d.cts",
-		"check": "bun run build && bun run lint && bun run test",
+		"build": "tsdown src/main.ts --publint --unused --dts --format esm --format cjs",
+		"check": "bun run lint && bun run build && bun run test",
 		"lint": "eslint . && tsc && (cd test && tsc)",
 		"redis:down": "docker stop test-redis",
 		"redis:up": "docker ps | grep test-redis >/dev/null || docker run --rm -d -p 16379:6379 --name test-redis redis:7-alpine",
