@@ -29,7 +29,6 @@ const redis = __toESM(require("redis"));
 //#region src/errors.ts
 var TasqError = class extends Error {};
 var TasqRequestError = class extends TasqError {
-	state;
 	constructor(state) {
 		super();
 		this.state = state;
@@ -43,7 +42,6 @@ var TasqRequestUnknownMethodError = class extends TasqRequestError {
 };
 var TasqRequestRejectedError = class extends TasqRequestError {
 	message = "Method failed to execute.";
-	response_status;
 	/**
 	* @param state -
 	* @param [response_status] -
@@ -170,10 +168,11 @@ var TasqServer = class {
 	}
 	/**
 	* Gets a task from the queue and executes it.
-	* @param [by_notification] - Indicates if the task was scheduled by a Redis message.
+	* @param by_notification - Indicates if the task was scheduled by a Redis message.
 	* @returns -
 	*/
 	async execute(by_notification = false) {
+		const _run_id = Math.random().toString(36).slice(2, 11);
 		if (this.processes >= this.processes_max) return;
 		this.processes++;
 		if (by_notification) this.has_unresponded_notification = false;
@@ -274,8 +273,7 @@ var Tasq = class {
 			method
 		];
 		if (data) request[4] = data;
-		await this.redisClient.multi().RPUSH(redis_key, cbor_x.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
-		return Promise.race([new Promise((resolve, reject) => {
+		const promise = Promise.race([new Promise((resolve, reject) => {
 			this.requests.set(request_id_string, {
 				state: [
 					topic,
@@ -295,6 +293,8 @@ var Tasq = class {
 				]));
 			}, timeout);
 		})]);
+		await this.redisClient.multi().RPUSH(redis_key, cbor_x.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
+		return promise;
 	}
 	/**
 	* Handles a response to a task.
@@ -318,8 +318,6 @@ var Tasq = class {
 					break;
 				default: reject(new Error("Unknown response status."));
 			}
-			if (status === 0) resolve(data);
-			else reject(new TasqRequestRejectedError(state, status));
 		}
 	}
 	/**

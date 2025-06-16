@@ -97,7 +97,7 @@ export class TasqServer {
 		await this.redisSubClient.subscribe(
 			this.redis_channel,
 			() => {
-				// console.log('New task available! Running scheduler...');
+				// console.log('Got notification! Running scheduler...');
 				this.has_unresponded_notification = true;
 				this.schedule(true);
 			},
@@ -118,12 +118,14 @@ export class TasqServer {
 
 	/**
 	 * Gets a task from the queue and executes it.
-	 * @param [by_notification] - Indicates if the task was scheduled by a Redis message.
+	 * @param by_notification - Indicates if the task was scheduled by a Redis message.
 	 * @returns -
 	 */
 	private async execute(by_notification: boolean = false) {
-		// const _run_id = Math.random().toString(36).slice(2, 11);
-		// console.log(`[run ${_run_id}] Started`);
+		const _run_id = Math.random()
+			.toString(36)
+			.slice(2, 11);
+		// console.log(`[run ${_run_id}] Starting process (processes = ${this.processes}, processes_max = ${this.processes_max})`);
 
 		if (this.processes >= this.processes_max) {
 			// console.log(`[run ${_run_id}] Maximum number of processes reached.`);
@@ -183,6 +185,8 @@ export class TasqServer {
 					response[1] = 2;
 				}
 
+				// console.log(`[run ${_run_id}] Response to return`, response);
+
 				await this.redisClient.publish(
 					getRedisChannelForResponse(client_id),
 					CBOR.encode(response),
@@ -198,6 +202,8 @@ export class TasqServer {
 
 		this.processes--;
 
+		// console.log(`[run ${_run_id}] Process ended (processes = ${this.processes}, processes_max = ${this.processes_max})`);
+
 		if (
 			has_task
 			|| this.has_unresponded_notification
@@ -207,9 +213,9 @@ export class TasqServer {
 				this.has_unresponded_notification,
 			);
 		}
-		// else {
-		// 	console.log(`[run ${_run_id}] Scheduler finished.`);
-		// }
+		else {
+			// console.log(`[run ${_run_id}] Scheduler finished.`);
+		}
 	}
 
 	/**

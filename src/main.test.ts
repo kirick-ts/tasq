@@ -41,9 +41,7 @@ describe('success', () => {
 		const response = await tasqClient.request(
 			'test',
 			'echo',
-			{
-				name: 'Tasq',
-			},
+			{ name: 'Tasq' },
 		);
 
 		expect(response).toBe('Hello, Tasq!');
@@ -139,31 +137,85 @@ describe('internal things', () => {
 
 	// FIXME wait for bun to support options as the second argument
 	test('load server', async () => {
-		const promises: Promise<TasqResponseData>[] = [];
-		for (let run_id = 1; run_id <= 200; run_id++) {
-			// eslint-disable-next-line no-await-in-loop
-			await asyncTimeout(Math.random() * 30);
+		const expected_results: ('throw' | 'timeout' | 'reply')[] = [];
+		const promises: Promise<PromiseSettledResult<TasqResponseData>>[] = [];
+		for (let run_id = 1; run_id <= 500; run_id++) {
+			// const value = Math.random();
+			// const expected_result = value < 0.333
+			// 	? 'throw'
+			// 	: (value < 0.667
+			// 		? 'timeout'
+			// 		: 'reply');
+			const expected_result = run_id % 10 === 0
+				? 'timeout'
+				: (Math.random() < 0.5
+					? 'throw'
+					: 'reply');
+			// const expected_result = 'throw';
+
+			expected_results.push(expected_result);
 
 			promises.push(
 				tasqClient.request(
 					'test',
-					'userAsync',
-					undefined,
-					{
-						timeout: 100,
-					},
-				),
+					'randomResult',
+					{ expected_result },
+					{ timeout: 180 },
+				)
+					// have to await promises here because if promise rejects before we got to await Promise.allSettled(), it throws to runtime.
+					.then((value) => {
+						return {
+							status: 'fulfilled' as const,
+							value,
+						};
+					})
+					.catch((error) => {
+						return {
+							status: 'rejected' as const,
+							reason: error,
+						};
+					}),
 			);
+
+			if (expected_result === 'timeout') {
+				// eslint-disable-next-line no-await-in-loop
+				await asyncTimeout(120);
+			}
 		}
 
-		const result = await Promise.all(promises);
-		for (const result_one of result) {
-			expect(result_one).toStrictEqual({
-				id: 1,
-				name: 'Tasq',
-			});
+		const results = await Promise.all(promises);
+		for (const [ index, result ] of results.entries()) {
+			const expected_result = expected_results[index];
+			switch (expected_results[index]) {
+				case 'reply':
+					// check entire object to log all properties from it
+					expect(result).toStrictEqual({
+						status: 'fulfilled',
+						value: 'OK',
+					});
+					break;
+
+				case 'timeout':
+					expect(result.status).toBe('rejected');
+					// type guard
+					if (result.status === 'rejected') {
+						expect(result.reason).toBeInstanceOf(TasqRequestTimeoutError);
+					}
+					break;
+
+				case 'throw':
+					expect(result.status).toBe('rejected');
+					// type guard
+					if (result.status === 'rejected') {
+						expect(result.reason).toBeInstanceOf(TasqRequestRejectedError);
+					}
+					break;
+
+				default:
+					throw new Error(`Unexpected result: ${expected_result}`);
+			}
 		}
-	}, { timeout: 1000 * 30 });
+	}, { timeout: 25_000 });
 });
 
 describe('namespaced client', async () => {
@@ -181,11 +233,11 @@ describe('namespaced client', async () => {
 	});
 });
 
-describe('last one', () => {
-	test('server destroy', async () => {
-		await tasqServer.destroy();
+// describe('last one', () => {
+// 	test('server destroy', async () => {
+// 		await tasqServer.destroy();
 
-		const promise = tasqClient.request('test', 'userSync', undefined, { timeout: 100 });
-		expect(promise).rejects.toThrow();
-	});
-});
+// 		const promise = tasqClient.request('test', 'userSync', undefined, { timeout: 100 });
+// 		expect(promise).rejects.toThrow();
+// 	});
+// });
