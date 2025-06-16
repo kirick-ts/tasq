@@ -192,13 +192,13 @@ export class TasqServer {
 					CBOR.encode(response),
 				);
 			}
-			else {
-				// console.log(`[run ${_run_id}] Task expired.`);
-			}
+			// else {
+			// 	console.log(`[run ${_run_id}] Task expired.`);
+			// }
 		}
-		else {
-			// console.log(`[run ${_run_id}] No more tasks to execute.`);
-		}
+		// else {
+		// 	console.log(`[run ${_run_id}] No more tasks to execute.`);
+		// }
 
 		this.processes--;
 
