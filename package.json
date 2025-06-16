@@ -1,6 +1,6 @@
 {
 	"name": "@kirick/tasq",
-	"version": "0.3.2-dev",
+	"version": "0.3.3",
 	"description": "Schedule tasks for your microservices easily.",
 	"publishConfig": {
 		"access": "public"
