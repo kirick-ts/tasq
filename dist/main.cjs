@@ -154,7 +154,6 @@ var TasqServer = class {
 			await this.redisSubClient.connect();
 		}
 		await this.redisSubClient.subscribe(this.redis_channel, () => {
-			console.log("Got notification! Running scheduler...");
 			this.has_unresponded_notification = true;
 			this.schedule(true);
 		});
@@ -174,11 +173,7 @@ var TasqServer = class {
 	*/
 	async execute(by_notification = false) {
 		const _run_id = Math.random().toString(36).slice(2, 11);
-		console.log(`[run ${_run_id}] Starting process (processes = ${this.processes}, processes_max = ${this.processes_max})`);
-		if (this.processes >= this.processes_max) {
-			console.log(`[run ${_run_id}] Maximum number of processes reached.`);
-			return;
-		}
+		if (this.processes >= this.processes_max) return;
 		this.processes++;
 		if (by_notification) this.has_unresponded_notification = false;
 		const task_buffer = await this.redisClient.LPOP((0, redis.commandOptions)({ returnBuffers: true }), this.redis_key);
@@ -186,7 +181,6 @@ var TasqServer = class {
 		if (has_task) {
 			const [client_id, request_id, ts_timeout, method, method_args] = cbor_x.decode(task_buffer);
 			if (getTime() < ts_timeout) {
-				console.log(`[run ${_run_id}] Running task with method "${method}" and arguments`, method_args);
 				const response = [request_id, 0];
 				const handler = this.handlers[method];
 				if (typeof handler === "function") try {
@@ -200,16 +194,11 @@ var TasqServer = class {
 					response[1] = 1;
 				}
 				else response[1] = 2;
-				console.log(`[run ${_run_id}] Response to return`, response);
 				await this.redisClient.publish(getRedisChannelForResponse(client_id), cbor_x.encode(response));
-			} else console.log(`[run ${_run_id}] Task expired.`);
-		} else console.log(`[run ${_run_id}] No more tasks to execute.`);
+			}
+		}
 		this.processes--;
-		console.log(`[run ${_run_id}] Process ended (processes = ${this.processes}, processes_max = ${this.processes_max})`);
-		if (has_task || this.has_unresponded_notification) {
-			console.log(`[run ${_run_id}] Starting another scheduler...`);
-			this.schedule(this.has_unresponded_notification);
-		} else console.log(`[run ${_run_id}] Scheduler finished.`);
+		if (has_task || this.has_unresponded_notification) this.schedule(this.has_unresponded_notification);
 	}
 	/**
 	* Destroys the server.
