@@ -13,7 +13,5 @@ export function createId(): Buffer {
  * @returns The generated ID.
  */
 export function createIdString(): string {
-	return createId()
-		.toString('base64')
-		.replaceAll('=', '');
+	return createId().toString('base64url');
 }

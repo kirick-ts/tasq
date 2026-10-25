@@ -1,11 +1,10 @@
-import * as CBOR$1 from "cbor-x";
 import * as CBOR from "cbor-x";
 import { randomBytes } from "node:crypto";
 import { commandOptions } from "redis";
-
-//#region src/errors.ts
+// src/errors.ts
 var TasqError = class extends Error {};
 var TasqRequestError = class extends TasqError {
+	state;
 	constructor(state) {
 		super();
 		this.state = state;
@@ -19,18 +18,8 @@ var TasqRequestUnknownMethodError = class extends TasqRequestError {
 };
 var TasqRequestRejectedError = class extends TasqRequestError {
 	message = "Method failed to execute.";
-	/**
-	* @param state -
-	* @param [response_status] -
-	*/
-	constructor(state, response_status) {
-		super(state);
-		this.response_status = response_status;
-	}
 };
-
-//#endregion
-//#region src/fns.ts
+// src/fns.ts
 /**
 * Returns current time in milliseconds since 1 Jan 2023 00:00:00 UTC.
 * @returns -
@@ -62,9 +51,7 @@ function getRedisChannelForRequest(topic) {
 function getRedisChannelForResponse(client_id) {
 	return `@tasq:client:${client_id}`;
 }
-
-//#endregion
-//#region src/id.ts
+// src/id.ts
 /**
 * Generates a random ID.
 * @returns The generated ID.
@@ -77,16 +64,14 @@ function createId() {
 * @returns The generated ID.
 */
 function createIdString() {
-	return createId().toString("base64").replaceAll("=", "");
+	return createId().toString("base64url");
 }
-
-//#endregion
-//#region src/server.ts
+// src/server.ts
 var TasqServer = class {
 	/** Redis client for executing commands. */
-	redisClient;
+	#redisClient;
 	/** Redis client for subscribing to channels. */
-	redisSubClient;
+	#redisSubClient;
 	/** Indicates if the redisSubClient was created internally. */
 	is_redis_sub_client_internal = false;
 	/** The default handler for the tasks. */
@@ -104,10 +89,10 @@ var TasqServer = class {
 	/**  Indicates if there are unresponded notifications. */
 	has_unresponded_notification = false;
 	constructor(redisClient, options) {
-		this.redisClient = redisClient;
-		if (options.redisSubClient) this.redisSubClient = options.redisSubClient;
+		this.#redisClient = redisClient;
+		if (options.redisSubClient) this.#redisSubClient = options.redisSubClient;
 		else {
-			this.redisSubClient = redisClient.duplicate();
+			this.#redisSubClient = redisClient.duplicate();
 			this.is_redis_sub_client_internal = true;
 		}
 		if (options.handler) this.handler = options.handler;
@@ -123,14 +108,10 @@ var TasqServer = class {
 	*/
 	async initSubClient() {
 		if (this.is_redis_sub_client_internal) {
-			this.redisSubClient.on(
-				"error",
-				// eslint-disable-next-line no-console
-				console.error
-);
-			await this.redisSubClient.connect();
+			this.#redisSubClient.on("error", console.error);
+			await this.#redisSubClient.connect();
 		}
-		await this.redisSubClient.subscribe(this.redis_channel, () => {
+		await this.#redisSubClient.subscribe(this.redis_channel, () => {
 			this.has_unresponded_notification = true;
 			this.schedule(true);
 		});
@@ -138,25 +119,26 @@ var TasqServer = class {
 	}
 	/**
 	* Schedules a new task execute.
-	* @param [by_notification] - Indicates if the task was scheduled by a Redis message.
+	* @param [was_notification] - Indicates if the task was scheduled by a Redis message.
 	*/
-	schedule(by_notification = false) {
-		this.execute(by_notification).catch(console.error);
+	schedule(was_notification = false) {
+		this.execute(was_notification).catch(console.error);
 	}
 	/**
 	* Gets a task from the queue and executes it.
-	* @param by_notification - Indicates if the task was scheduled by a Redis message.
+	* @param was_notification - Indicates if the task was scheduled by a Redis message.
 	* @returns -
 	*/
-	async execute(by_notification = false) {
-		const _run_id = Math.random().toString(36).slice(2, 11);
+	async execute(was_notification = false) {
+		Math.random().toString(36).slice(2, 11);
 		if (this.processes >= this.processes_max) return;
 		this.processes++;
-		if (by_notification) this.has_unresponded_notification = false;
-		const task_buffer = await this.redisClient.LPOP(commandOptions({ returnBuffers: true }), this.redis_key);
+		if (was_notification) this.has_unresponded_notification = false;
+		const task_buffer = await this.#redisClient.LPOP(commandOptions({ returnBuffers: true }), this.redis_key);
 		const has_task = Buffer.isBuffer(task_buffer);
 		if (has_task) {
-			const [client_id, request_id, ts_timeout, method, method_args] = CBOR$1.decode(task_buffer);
+			if (this.processes < this.processes_max) this.schedule();
+			const [client_id, request_id, ts_timeout, method, method_args] = CBOR.decode(task_buffer);
 			if (getTime() < ts_timeout) {
 				const response = [request_id, 0];
 				const handler = this.handlers[method];
@@ -171,7 +153,7 @@ var TasqServer = class {
 					response[1] = 1;
 				}
 				else response[1] = 2;
-				await this.redisClient.publish(getRedisChannelForResponse(client_id), CBOR$1.encode(response));
+				await this.#redisClient.publish(getRedisChannelForResponse(client_id), CBOR.encode(response));
 			}
 		}
 		this.processes--;
@@ -182,13 +164,11 @@ var TasqServer = class {
 	* @returns -
 	*/
 	async destroy() {
-		await this.redisSubClient.unsubscribe(this.redis_channel);
-		if (this.is_redis_sub_client_internal) await this.redisSubClient.disconnect();
+		await this.#redisSubClient.unsubscribe(this.redis_channel);
+		if (this.is_redis_sub_client_internal) await this.#redisSubClient.disconnect();
 	}
 };
-
-//#endregion
-//#region src/main.ts
+// src/main.ts
 const symbol_no_new = Symbol("no_new");
 var Tasq = class {
 	id = createIdString();
@@ -196,8 +176,8 @@ var Tasq = class {
 	redisSubClient;
 	is_redis_sub_client_internal = false;
 	/** Active requests that are waiting for a response. */
-	requests = new Map();
-	servers = new Set();
+	requests = /* @__PURE__ */ new Map();
+	servers = /* @__PURE__ */ new Set();
 	/**
 	* @param redisClient The Redis client from "redis" package to be used.
 	* @param options The configuration for the Tasq instance.
@@ -219,11 +199,7 @@ var Tasq = class {
 	*/
 	async initSubClient() {
 		if (this.is_redis_sub_client_internal) {
-			this.redisSubClient.on(
-				"error",
-				// eslint-disable-next-line no-console
-				console.error
-);
+			this.redisSubClient.on("error", console.error);
 			await this.redisSubClient.connect();
 		}
 		await this.redisSubClient.subscribe(getRedisChannelForResponse(this.id), (message) => {
@@ -250,18 +226,8 @@ var Tasq = class {
 			method
 		];
 		if (data) request[4] = data;
-		const promise = Promise.race([new Promise((resolve, reject) => {
-			this.requests.set(request_id_string, {
-				state: [
-					topic,
-					method,
-					data
-				],
-				resolve,
-				reject
-			});
-		}), new Promise((_resolve, reject) => {
-			setTimeout(() => {
+		const promise = new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
 				this.requests.delete(request_id_string);
 				reject(new TasqRequestTimeoutError([
 					topic,
@@ -269,8 +235,24 @@ var Tasq = class {
 					data
 				]));
 			}, timeout);
-		})]);
-		await this.redisClient.multi().RPUSH(redis_key, CBOR.encode(request)).PEXPIRE(redis_key, timeout).PUBLISH(getRedisChannelForRequest(topic), "").exec();
+			this.requests.set(request_id_string, {
+				state: [
+					topic,
+					method,
+					data
+				],
+				timer,
+				resolve,
+				reject
+			});
+		});
+		try {
+			await this.redisClient.multi().RPUSH(redis_key, CBOR.encode(request)).PEXPIRE(redis_key, timeout, "NX").PEXPIRE(redis_key, timeout, "GT").PUBLISH(getRedisChannelForRequest(topic), "").exec();
+		} catch (error) {
+			clearTimeout(this.requests.get(request_id_string)?.timer);
+			this.requests.delete(request_id_string);
+			throw error;
+		}
 		return promise;
 	}
 	/**
@@ -281,7 +263,8 @@ var Tasq = class {
 		const [request_id, status, data] = CBOR.decode(message);
 		const request_id_string = request_id.toString("hex");
 		if (this.requests.has(request_id_string)) {
-			const { state, resolve, reject } = this.requests.get(request_id_string);
+			const { state, timer, resolve, reject } = this.requests.get(request_id_string);
+			clearTimeout(timer);
 			this.requests.delete(request_id_string);
 			switch (status) {
 				case 0:
@@ -293,7 +276,7 @@ var Tasq = class {
 				case 2:
 					reject(new TasqRequestUnknownMethodError(state));
 					break;
-				default: reject(new Error("Unknown response status."));
+				default: reject(/* @__PURE__ */ new Error("Unknown response status."));
 			}
 		}
 	}
@@ -331,6 +314,4 @@ async function createTasq(redisClient, options = {}) {
 	await tasq.initSubClient();
 	return tasq;
 }
-
-//#endregion
-export { Tasq, TasqServer, createTasq };
+export { Tasq, TasqError, TasqRequestError, TasqRequestRejectedError, TasqRequestTimeoutError, TasqRequestUnknownMethodError, TasqServer, createTasq };

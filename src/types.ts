@@ -1,13 +1,17 @@
 import type {
 	RedisClientType,
-	RedisModules,
 	RedisFunctions,
+	RedisModules,
 	RedisScripts,
 } from 'redis';
 
 export type MaybePromise<T> = T | Promise<T>;
 
-export type RedisClient = RedisClientType<RedisModules, RedisFunctions, RedisScripts>;
+export type RedisClient = RedisClientType<
+	RedisModules,
+	RedisFunctions,
+	RedisScripts
+>;
 
 export type TasqRequestData = Record<string, unknown> | unknown[] | undefined;
 export type TasqRedisRequest = [
@@ -18,15 +22,13 @@ export type TasqRedisRequest = [
 	TasqRequestData?,
 ];
 
-export type TasqResponseData = boolean | number | string | Record<string, unknown> | unknown[] | undefined;
-export type TasqRedisResponse = [
-	Buffer,
-	number,
-	TasqResponseData?,
-];
+export type TasqResponseData =
+	| boolean
+	| number
+	| string
+	| Record<string, unknown>
+	| unknown[]
+	| undefined;
+export type TasqRedisResponse = [Buffer, number, TasqResponseData?];
 
-export type TasqAwaitingRequestState = [
-	string,
-	string,
-	TasqRequestData?,
-];
+export type TasqAwaitingRequestState = [string, string, TasqRequestData?];

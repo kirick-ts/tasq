@@ -14,15 +14,4 @@ export class TasqRequestUnknownMethodError extends TasqRequestError {
 }
 export class TasqRequestRejectedError extends TasqRequestError {
 	override message = 'Method failed to execute.';
-
-	/**
-	 * @param state -
-	 * @param [response_status] -
-	 */
-	constructor(
-		state: TasqAwaitingRequestState,
-		public response_status?: number,
-	) {
-		super(state);
-	}
 }
