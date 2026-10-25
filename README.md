@@ -1,6 +1,7 @@
 # Tasq 🚀
 
 [![NPM Version](https://img.shields.io/npm/v/@kirick/tasq.svg)](https://www.npmjs.com/package/@kirick/tasq)
+[![Open on npmx.dev](https://npmx.dev/api/registry/badge/version/@kirick/tasq?style=shieldsio&label=npmx.dev)](https://npmx.dev/package/@kirick/tasq)
 [![License](https://img.shields.io/npm/l/@kirick/tasq.svg)](https://github.com/kirick-ts/tasq/blob/main/LICENSE)
 
 Tasq is a lightweight, Redis-backed task scheduler designed for microservices. It provides a simple yet powerful way to distribute tasks across your services.
@@ -23,6 +24,8 @@ Tasq leverages Redis (which you probably already use) to provide the perfect mid
 No new infrastructure to deploy, no complex protocols to learn, just reliable communication between your microservices.
 
 ## Installation
+
+Tasq requires Redis 7.0 or newer.
 
 ```bash
 bun add @kirick/tasq redis
@@ -108,7 +111,7 @@ const server = tasq.serve({
         return args.a - args.b;
       default:
         throw new Error(`Unknown method: ${method}`);
-    },
+    }
   },
 });
 ```

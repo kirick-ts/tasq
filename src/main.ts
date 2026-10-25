@@ -1,23 +1,17 @@
 import * as CBOR from 'cbor-x';
 import {
-	TasqRequestTimeoutError,
 	TasqRequestRejectedError,
+	TasqRequestTimeoutError,
 	TasqRequestUnknownMethodError,
 } from './errors.js';
 import {
-	getTime,
-	getRedisKey,
 	getRedisChannelForRequest,
 	getRedisChannelForResponse,
+	getRedisKey,
+	getTime,
 } from './fns.js';
-import {
-	createId,
-	createIdString,
-} from './id.js';
-import {
-	TasqServer,
-	type TasqServerOptions,
-} from './server.js';
+import { createId, createIdString } from './id.js';
+import { TasqServer, type TasqServerOptions } from './server.js';
 import type {
 	RedisClient,
 	TasqAwaitingRequestState,
@@ -32,7 +26,7 @@ interface TasqOptions {
 	namespace?: string;
 }
 
-const symbol_no_new: symbol = Symbol('no_new');
+const symbol_no_new: unique symbol = Symbol('no_new');
 
 export class Tasq {
 	private id = createIdString();
@@ -43,9 +37,10 @@ export class Tasq {
 	private requests = new Map<
 		string,
 		{
-			state: TasqAwaitingRequestState,
-			resolve: (value: TasqResponseData) => void,
-			reject: (error: Error) => void,
+			state: TasqAwaitingRequestState;
+			timer: ReturnType<typeof setTimeout>;
+			resolve: (value: TasqResponseData) => void;
+			reject: (error: Error) => void;
 		}
 	>();
 	private servers = new Set<TasqServer>();
@@ -72,8 +67,7 @@ export class Tasq {
 
 		if (options.redisSubClient) {
 			this.redisSubClient = options.redisSubClient;
-		}
-		else {
+		} else {
 			this.redisSubClient = redisClient.duplicate();
 			this.is_redis_sub_client_internal = true;
 		}
@@ -87,7 +81,7 @@ export class Tasq {
 		if (this.is_redis_sub_client_internal) {
 			this.redisSubClient.on(
 				'error',
-				// eslint-disable-next-line no-console
+				// oxlint-disable-next-line no-console
 				console.error,
 			);
 
@@ -119,7 +113,7 @@ export class Tasq {
 		{
 			timeout = 10_000,
 		}: {
-			timeout?: number,
+			timeout?: number;
 		} = {},
 	): Promise<TasqResponseData> {
 		const request_id = createId();
@@ -139,52 +133,37 @@ export class Tasq {
 
 		// console.log('Sending request', request_id_string);
 
-		const promise = Promise.race([
-			new Promise<TasqResponseData>((resolve, reject) => {
-				this.requests.set(
-					request_id_string,
-					{
-						state: [
-							topic,
-							method,
-							data,
-						],
-						resolve,
-						reject,
-					},
-				);
-			}),
-			new Promise<never>((_resolve, reject) => {
-				setTimeout(
-					() => {
-						this.requests.delete(request_id_string);
-						reject(
-							new TasqRequestTimeoutError([
-								topic,
-								method,
-								data,
-							]),
-						);
-					},
-					timeout,
-				);
-			}),
-		]);
+		const promise = new Promise<TasqResponseData>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.requests.delete(request_id_string);
+				reject(new TasqRequestTimeoutError([topic, method, data]));
+			}, timeout);
 
-		await this.redisClient.multi()
-			.RPUSH(
-				redis_key,
-				CBOR.encode(request),
-			)
-			.PEXPIRE(
-				redis_key,
-				timeout,
-			)
-			.PUBLISH(
-				getRedisChannelForRequest(topic),
-				'',
-			)
-			.exec();
+			this.requests.set(request_id_string, {
+				state: [topic, method, data],
+				timer,
+				resolve,
+				reject,
+			});
+		});
+
+		try {
+			await this.redisClient
+				.multi()
+				.RPUSH(redis_key, CBOR.encode(request))
+				// GT alone ignores keys without TTL, so NX sets it on a new queue
+				.PEXPIRE(redis_key, timeout, 'NX')
+				// extend TTL only, so a shorter request does not expire tasks queued before it
+				.PEXPIRE(redis_key, timeout, 'GT')
+				.PUBLISH(getRedisChannelForRequest(topic), '')
+				.exec();
+		} catch (error) {
+			// request was not sent and nobody awaits the promise, so its timer must not reject it
+			clearTimeout(this.requests.get(request_id_string)?.timer);
+			this.requests.delete(request_id_string);
+
+			throw error;
+		}
 
 		return promise;
 	}
@@ -194,22 +173,16 @@ export class Tasq {
 	 * @param message The message received.
 	 */
 	private onResponse(message: Buffer) {
-		const [
-			request_id,
-			status,
-			data,
-		]: TasqRedisResponse = CBOR.decode(message);
+		const [request_id, status, data]: TasqRedisResponse = CBOR.decode(message);
 
 		const request_id_string = request_id.toString('hex');
 		// console.log('Received response', request_id_string);
 
 		if (this.requests.has(request_id_string)) {
-			const {
-				state,
-				resolve,
-				reject,
-			} = this.requests.get(request_id_string)!;
+			const { state, timer, resolve, reject } =
+				this.requests.get(request_id_string)!;
 
+			clearTimeout(timer);
 			this.requests.delete(request_id_string);
 
 			switch (status) {
@@ -237,13 +210,10 @@ export class Tasq {
 	 * @returns The Tasq server.
 	 */
 	serve(options: TasqServerOptions): TasqServer {
-		const server = new TasqServer(
-			this.redisClient,
-			{
-				redisSubClient: this.redisSubClient,
-				...options,
-			},
-		);
+		const server = new TasqServer(this.redisClient, {
+			redisSubClient: this.redisSubClient,
+			...options,
+		});
 
 		this.servers.add(server);
 
@@ -255,12 +225,10 @@ export class Tasq {
 	 * @returns -
 	 */
 	async destroy(): Promise<void> {
-		await this.redisSubClient.unsubscribe(
-			getRedisChannelForResponse(this.id),
-		);
+		await this.redisSubClient.unsubscribe(getRedisChannelForResponse(this.id));
 
 		for (const server of this.servers) {
-			// eslint-disable-next-line no-await-in-loop
+			// oxlint-disable-next-line no-await-in-loop
 			await server.destroy();
 		}
 
@@ -287,5 +255,12 @@ export async function createTasq(
 	return tasq;
 }
 
+export {
+	TasqError,
+	TasqRequestError,
+	TasqRequestRejectedError,
+	TasqRequestTimeoutError,
+	TasqRequestUnknownMethodError,
+} from './errors.js';
 export { TasqServer } from './server.js';
 export type { TasqRequestData } from './types.js';
