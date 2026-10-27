@@ -110,7 +110,6 @@ test('up to `threads` tasks at once when tasks are queued before the server star
 test('500 requests with mixed results', async () => {
 	const topic = createTopic();
 	const gate = createGate();
-	let running = 0;
 	tasq.serve({
 		topic,
 		// more threads than blocked tasks, so blocked tasks never delay the rest
@@ -121,21 +120,16 @@ test('500 requests with mixed results', async () => {
 					throw new TypeError('Invalid args.');
 				}
 
-				running++;
-				try {
-					switch (args?.expected_result) {
-						case 'reply':
-							return 'OK';
-						case 'throw':
-							throw new Error('Test error.');
-						case 'timeout':
-							await gate.promise;
-							return 'Too late';
-						default:
-							throw new TypeError('Invalid args.');
-					}
-				} finally {
-					running--;
+				switch (args?.expected_result) {
+					case 'reply':
+						return 'OK';
+					case 'throw':
+						throw new Error('Test error.');
+					case 'timeout':
+						await gate.promise;
+						return 'Too late';
+					default:
+						throw new TypeError('Invalid args.');
 				}
 			},
 		},
@@ -191,8 +185,6 @@ test('500 requests with mixed results', async () => {
 		}
 	}
 
-	// let blocked tasks finish, so their late replies are sent before the connection closes
+	// tasq.destroy() waits for blocked tasks, so let them finish
 	gate.open();
-	await sleep(10);
-	await waitFor(() => running === 0);
 });

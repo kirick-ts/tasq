@@ -19,6 +19,9 @@ var TasqRequestUnknownMethodError = class extends TasqRequestError {
 var TasqRequestRejectedError = class extends TasqRequestError {
 	message = "Method failed to execute.";
 };
+var TasqRequestDestroyedError = class extends TasqRequestError {
+	message = "Tasq instance was destroyed.";
+};
 // src/fns.ts
 /**
 * Returns current time in milliseconds since 1 Jan 2023 00:00:00 UTC.
@@ -88,6 +91,10 @@ var TasqServer = class {
 	processes_max = 1;
 	/**  Indicates if there are unresponded notifications. */
 	has_unresponded_notification = false;
+	/** Indicates if the server was destroyed and must not take new tasks. */
+	is_destroyed = false;
+	/** Executions that are currently running. */
+	executions = /* @__PURE__ */ new Set();
 	constructor(redisClient, options) {
 		this.#redisClient = redisClient;
 		if (options.redisSubClient) this.#redisSubClient = options.redisSubClient;
@@ -122,7 +129,10 @@ var TasqServer = class {
 	* @param [was_notification] - Indicates if the task was scheduled by a Redis message.
 	*/
 	schedule(was_notification = false) {
-		this.execute(was_notification).catch(console.error);
+		const execution = this.execute(was_notification).catch(console.error).finally(() => {
+			this.executions.delete(execution);
+		});
+		this.executions.add(execution);
 	}
 	/**
 	* Gets a task from the queue and executes it.
@@ -131,7 +141,7 @@ var TasqServer = class {
 	*/
 	async execute(was_notification = false) {
 		Math.random().toString(36).slice(2, 11);
-		if (this.processes >= this.processes_max) return;
+		if (this.is_destroyed || this.processes >= this.processes_max) return;
 		this.processes++;
 		if (was_notification) this.has_unresponded_notification = false;
 		const task_buffer = await this.#redisClient.LPOP(commandOptions({ returnBuffers: true }), this.redis_key);
@@ -160,12 +170,15 @@ var TasqServer = class {
 		if (has_task || this.has_unresponded_notification) this.schedule(this.has_unresponded_notification);
 	}
 	/**
-	* Destroys the server.
+	* Destroys the server: it stops taking new tasks and waits for running ones.
+	* @param is_forced - Do not wait for running tasks.
 	* @returns -
 	*/
-	async destroy() {
+	async destroy(is_forced = false) {
+		this.is_destroyed = true;
 		await this.#redisSubClient.unsubscribe(this.redis_channel);
 		if (this.is_redis_sub_client_internal) await this.#redisSubClient.disconnect();
+		if (!is_forced) await Promise.all(this.executions);
 	}
 };
 // src/main.ts
@@ -246,6 +259,7 @@ var Tasq = class {
 				reject
 			});
 		});
+		promise.catch(() => void 0);
 		try {
 			await this.redisClient.multi().RPUSH(redis_key, CBOR.encode(request)).PEXPIRE(redis_key, timeout, "NX").PEXPIRE(redis_key, timeout, "GT").PUBLISH(getRedisChannelForRequest(topic), "").exec();
 		} catch (error) {
@@ -294,12 +308,18 @@ var Tasq = class {
 		return server;
 	}
 	/**
-	* Destroys the Tasq instance.
+	* Destroys the Tasq instance: rejects pending requests and destroys its servers.
+	* @param is_forced - Do not wait for tasks running on the servers.
 	* @returns -
 	*/
-	async destroy() {
+	async destroy(is_forced = false) {
 		await this.redisSubClient.unsubscribe(getRedisChannelForResponse(this.id));
-		for (const server of this.servers) await server.destroy();
+		for (const { state, timer, reject } of this.requests.values()) {
+			clearTimeout(timer);
+			reject(new TasqRequestDestroyedError(state));
+		}
+		this.requests.clear();
+		for (const server of this.servers) await server.destroy(is_forced);
 		if (this.is_redis_sub_client_internal) await this.redisSubClient.disconnect();
 	}
 };
@@ -314,4 +334,4 @@ async function createTasq(redisClient, options = {}) {
 	await tasq.initSubClient();
 	return tasq;
 }
-export { Tasq, TasqError, TasqRequestError, TasqRequestRejectedError, TasqRequestTimeoutError, TasqRequestUnknownMethodError, TasqServer, createTasq };
+export { Tasq, TasqError, TasqRequestDestroyedError, TasqRequestError, TasqRequestRejectedError, TasqRequestTimeoutError, TasqRequestUnknownMethodError, TasqServer, createTasq };

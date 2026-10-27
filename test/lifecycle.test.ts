@@ -3,14 +3,16 @@ import { afterAll, describe, expect, test } from 'vitest';
 import {
 	getRedisChannelForRequest,
 	getRedisChannelForResponse,
+	getRedisKey,
 } from '../src/fns.js';
 import {
 	createTasq,
+	TasqRequestDestroyedError,
 	TasqRequestTimeoutError,
 	TasqServer,
 } from '../src/main.js';
 import { countConnections, createRedisClient } from './redis.js';
-import { createTopic, waitFor } from './utils.js';
+import { createGate, createTopic, sleep, waitFor } from './utils.js';
 
 const redisClient = await createRedisClient();
 const tasq = await createTasq(redisClient);
@@ -105,6 +107,18 @@ describe('Tasq.destroy()', () => {
 		await redisSubClient.quit();
 		await redisClientOwner.quit();
 	});
+
+	test('rejects pending requests', async () => {
+		const tasqOwner = await createTasq(redisClient);
+		// nobody serves this topic
+		const promise = tasqOwner.request(createTopic(), 'ping', undefined, {
+			timeout: 60_000,
+		});
+
+		await tasqOwner.destroy();
+
+		await expect(promise).rejects.toBeInstanceOf(TasqRequestDestroyedError);
+	});
 });
 
 describe('TasqServer.destroy()', () => {
@@ -132,6 +146,74 @@ describe('TasqServer.destroy()', () => {
 		await expectNotServed(topic);
 		// the client and the other server use the same connection as the destroyed server
 		await expect(tasq.request(topic_other, 'ping')).resolves.toBe('pong');
+	});
+
+	test('waits for running tasks and leaves waiting ones in the queue', async () => {
+		const topic = createTopic();
+		const gate = createGate();
+		let is_started = false;
+		const server = tasq.serve({
+			topic,
+			handlers: {
+				async work() {
+					is_started = true;
+					await gate.promise;
+
+					return 'done';
+				},
+			},
+		});
+
+		const running = tasq.request(topic, 'work');
+		const waiting = expect(
+			tasq.request(topic, 'work', undefined, { timeout: 300 }),
+		).rejects.toBeInstanceOf(TasqRequestTimeoutError);
+		await waitFor(() => is_started);
+
+		let is_destroyed = false;
+		const destroying = (async () => {
+			await server.destroy();
+			is_destroyed = true;
+		})();
+
+		// give destroy() a chance to finish without waiting for the running task
+		await sleep(50);
+		expect(is_destroyed).toBe(false);
+
+		gate.open();
+		await destroying;
+
+		await expect(running).resolves.toBe('done');
+		// the waiting task was not taken after destroy()
+		expect(await redisClient.LLEN(getRedisKey(topic))).toBe(1);
+		await waiting;
+	});
+
+	test('does not wait for running tasks when forced', async () => {
+		const topic = createTopic();
+		const gate = createGate();
+		let is_started = false;
+		const server = tasq.serve({
+			topic,
+			handlers: {
+				async work() {
+					is_started = true;
+					await gate.promise;
+
+					return 'done';
+				},
+			},
+		});
+
+		const promise = tasq.request(topic, 'work');
+		await waitFor(() => is_started);
+
+		// the task is blocked, so a destroy() that waits would never finish
+		await server.destroy(true);
+
+		gate.open();
+		// the task still finishes and replies, since the connection is open
+		await expect(promise).resolves.toBe('done');
 	});
 
 	test('closes own connection of a standalone server', async () => {

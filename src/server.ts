@@ -52,6 +52,10 @@ export class TasqServer {
 	private processes_max = 1;
 	/**  Indicates if there are unresponded notifications. */
 	private has_unresponded_notification = false;
+	/** Indicates if the server was destroyed and must not take new tasks. */
+	private is_destroyed = false;
+	/** Executions that are currently running. */
+	private executions = new Set<Promise<void>>();
 
 	constructor(redisClient: RedisClient, options: TasqServerOptions) {
 		this.#redisClient = redisClient;
@@ -109,9 +113,15 @@ export class TasqServer {
 	 * @param [was_notification] - Indicates if the task was scheduled by a Redis message.
 	 */
 	private schedule(was_notification = false) {
-		this.execute(was_notification)
+		const execution = this.execute(was_notification)
 			// oxlint-disable-next-line no-console, promise/prefer-await-to-then
-			.catch(console.error);
+			.catch(console.error)
+			// oxlint-disable-next-line promise/prefer-await-to-then
+			.finally(() => {
+				this.executions.delete(execution);
+			});
+
+		this.executions.add(execution);
 	}
 
 	/**
@@ -123,8 +133,8 @@ export class TasqServer {
 		const _run_id = Math.random().toString(36).slice(2, 11);
 		// console.log(`[run ${_run_id}] Starting process (processes = ${this.processes}, processes_max = ${this.processes_max})`);
 
-		if (this.processes >= this.processes_max) {
-			// console.log(`[run ${_run_id}] Maximum number of processes reached.`);
+		if (this.is_destroyed || this.processes >= this.processes_max) {
+			// console.log(`[run ${_run_id}] Server destroyed or maximum number of processes reached.`);
 			return;
 		}
 
@@ -204,15 +214,22 @@ export class TasqServer {
 	}
 
 	/**
-	 * Destroys the server.
+	 * Destroys the server: it stops taking new tasks and waits for running ones.
+	 * @param is_forced - Do not wait for running tasks.
 	 * @returns -
 	 */
-	async destroy(): Promise<void> {
+	async destroy(is_forced = false): Promise<void> {
+		this.is_destroyed = true;
+
 		await this.#redisSubClient.unsubscribe(this.redis_channel);
 
 		// if redisSubClient was created by the server itself, disconnect it
 		if (this.is_redis_sub_client_internal) {
 			await this.#redisSubClient.disconnect();
+		}
+
+		if (!is_forced) {
+			await Promise.all(this.executions);
 		}
 	}
 }

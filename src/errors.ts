@@ -15,3 +15,6 @@ export class TasqRequestUnknownMethodError extends TasqRequestError {
 export class TasqRequestRejectedError extends TasqRequestError {
 	override message = 'Method failed to execute.';
 }
+export class TasqRequestDestroyedError extends TasqRequestError {
+	override message = 'Tasq instance was destroyed.';
+}
