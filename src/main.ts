@@ -1,5 +1,6 @@
 import * as CBOR from 'cbor-x';
 import {
+	TasqRequestDestroyedError,
 	TasqRequestRejectedError,
 	TasqRequestTimeoutError,
 	TasqRequestUnknownMethodError,
@@ -146,6 +147,9 @@ export class Tasq {
 				reject,
 			});
 		});
+		// destroy() can reject the promise before it is returned below, which would be an unhandled rejection
+		// oxlint-disable-next-line promise/prefer-await-to-then
+		promise.catch(() => undefined);
 
 		try {
 			await this.redisClient
@@ -221,15 +225,23 @@ export class Tasq {
 	}
 
 	/**
-	 * Destroys the Tasq instance.
+	 * Destroys the Tasq instance: rejects pending requests and destroys its servers.
+	 * @param is_forced - Do not wait for tasks running on the servers.
 	 * @returns -
 	 */
-	async destroy(): Promise<void> {
+	async destroy(is_forced = false): Promise<void> {
 		await this.redisSubClient.unsubscribe(getRedisChannelForResponse(this.id));
+
+		for (const { state, timer, reject } of this.requests.values()) {
+			clearTimeout(timer);
+			reject(new TasqRequestDestroyedError(state));
+		}
+
+		this.requests.clear();
 
 		for (const server of this.servers) {
 			// oxlint-disable-next-line no-await-in-loop
-			await server.destroy();
+			await server.destroy(is_forced);
 		}
 
 		if (this.is_redis_sub_client_internal) {
@@ -257,6 +269,7 @@ export async function createTasq(
 
 export {
 	TasqError,
+	TasqRequestDestroyedError,
 	TasqRequestError,
 	TasqRequestRejectedError,
 	TasqRequestTimeoutError,

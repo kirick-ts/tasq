@@ -31,6 +31,10 @@ export declare class TasqServer {
   private processes_max;
   /**  Indicates if there are unresponded notifications. */
   private has_unresponded_notification;
+  /** Indicates if the server was destroyed and must not take new tasks. */
+  private is_destroyed;
+  /** Executions that are currently running. */
+  private executions;
   constructor(redisClient: RedisClient, options: TasqServerOptions);
   /**
    * Creates a new Redis client for the subscription.
@@ -49,10 +53,11 @@ export declare class TasqServer {
    */
   private execute;
   /**
-   * Destroys the server.
+   * Destroys the server: it stops taking new tasks and waits for running ones.
+   * @param is_forced - Do not wait for running tasks.
    * @returns -
    */
-  destroy(): Promise<void>;
+  destroy(is_forced?: boolean): Promise<void>;
 }
 export declare class TasqError extends Error {}
 export declare class TasqRequestError extends TasqError {
@@ -66,6 +71,9 @@ export declare class TasqRequestUnknownMethodError extends TasqRequestError {
   override message: string;
 }
 export declare class TasqRequestRejectedError extends TasqRequestError {
+  override message: string;
+}
+export declare class TasqRequestDestroyedError extends TasqRequestError {
   override message: string;
 }
 interface TasqOptions {
@@ -116,10 +124,11 @@ export declare class Tasq {
    */
   serve(options: TasqServerOptions): TasqServer;
   /**
-   * Destroys the Tasq instance.
+   * Destroys the Tasq instance: rejects pending requests and destroys its servers.
+   * @param is_forced - Do not wait for tasks running on the servers.
    * @returns -
    */
-  destroy(): Promise<void>;
+  destroy(is_forced?: boolean): Promise<void>;
 }
 /**
  * Creates a new Tasq instance.
